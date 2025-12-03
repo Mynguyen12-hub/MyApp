@@ -1,138 +1,700 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
-import { Menu, ShoppingCart, Search, Home as HomeIcon, Grid3x3, Package, Heart, User } from 'lucide-react-native';
-import { ThemedText } from '@/components/themed-text';
-import { Image } from 'expo-image';
-interface Product {
-id: number;
-name: string;
-price: number;
-image: string;
-category: string;
+import React, { useState, useRef, useEffect } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+} from "react-native";
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { ProductCard } from '../../components/ProductCard';
+import ProductDetail from '../../components/ProductDetail';
+import { CartDrawer } from "../../components/CartDrawer";
+import { ProductsPage } from "./ProductsPage";
+// import { OrdersPage } from "./OrdersPage";
+import { FavoritesPage } from "./FavoritesPage";
+import { ProfilePage } from "./ProfilePage";
+import { Checkout } from "../../components/Checkout";
+import { ImageSourcePropType } from "react-native";
+import { useAuth } from "../context/AuthContext";
+import ChatScreen from "../../components/ChatScreen";
+export interface Product {
+  id: number;
+  name: string;
+  price: number;
+  image: ImageSourcePropType;
+  category: string;
+  description: string;
+}
+
+export interface CartItem extends Product {
+  quantity: number;
+}
+
+export interface Order {
+  id: string;
+  date: string;
+  items: CartItem[];
+  total: number;
+  status: "pending" | "processing" | "delivered" | "cancelled";
 }
 
 const products: Product[] = [
-  { id: 1, name: 'Bó Hoa Hồng', price: 450000, image: require('@/assets/images/hoahong.jpg'), category: 'Hoa Hồng' },
-  { id: 2, name: 'Hoa Tulip Trắng', price: 320000, image: require('@/assets/images/hoatulip.jpg'), category: 'Hoa Tulip' },
-  { id: 3, name: 'Hoa Hướng Dương', price: 380000, image: require('@/assets/images/hoahuongduong.jpg'), category: 'Hoa Hướng Dương' },
-  { id: 4, name: 'Hoa Lavender', price: 290000, image: require('@/assets/images/hoalavender.jpg'), category: 'Hoa Lavender' },
+  {
+    id: 1,
+    name: "Bó Hoa Hồng",
+    price: 450000,
+    image: require('../../assets/images/hoahong.jpg'),
+    category: "Hoa Hồng",
+    description: "Bó hoa hồng tươi đẹp cho mọi dịp",
+  },
+  {
+    id: 2,
+    name: "Hoa Tulip Trắng",
+    price: 320000,
+    image: require('../../assets/images/hoatulip.jpg'),
+    category: "Hoa Tulip",
+    description: "Hoa tulip trắng thanh lịch",
+  },
+  {
+    id: 3,
+    name: "Hoa Hướng Dương",
+    price: 380000,
+    image: require('../../assets/images/hoahuongduong.jpg'),
+    category: "Hoa Hướng Dương",
+    description: "Hoa hướng dương rực rỡ",
+  },
+  {
+    id: 4,
+    name: "Hoa Lavender",
+    price: 290000,
+    image: require('../../assets/images/hoalavender.jpg'),
+    category: "Hoa Lavender",
+    description: "Hoa lavender thơm dịu nhẹ",
+  },
 ];
 
-const categories = ['Tất Cả', 'Hoa Hồng', 'Hoa Tulip', 'Hoa Hướng Dương', 'Hoa Lavender'];
+const categories = [
+  "Tất Cả",
+  "Hoa Hồng",
+  "Hoa Tulip",
+  "Hoa Hướng Dương",
+  "Hoa Lavender",
+];
 
 export default function HomeScreen() {
-const [searchQuery, setSearchQuery] = useState('');
-const [selectedCategory, setSelectedCategory] = useState('Tất Cả');
-const [favorites, setFavorites] = useState<number[]>([]);
-const [cartItems, setCartItems] = useState<Product[]>([]);
+  // ===== ALL HOOKS AT THE TOP =====
+  const { logout, user } = useAuth();
+  const windowWidth = useWindowDimensions().width;
+  const [selectedCategory, setSelectedCategory] = useState("Tất Cả");
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("home");
+  const [favorites, setFavorites] = useState<number[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [bannerIndex, setBannerIndex] = useState(0);
+  const bannerRef = useRef<FlatList>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  // Banner images (3-4 ảnh)
+  const bannerImages = [
+    { id: 1, image: require('../../assets/images/baner1.jpg') },
+    { id: 2, image: require('../../assets/images/banner2.jpg') },
+    { id: 3, image: require('../../assets/images/banner3.jpg') },
+    { id: 4, image: require('../../assets/images/banner4.jpg') },
+  ];
 
-const filteredProducts = products.filter(
-(p) => (selectedCategory === 'Tất Cả' || p.category === selectedCategory) &&
-p.name.toLowerCase().includes(searchQuery.toLowerCase())
-);
+  // ===== ALL LOGIC AFTER HOOKS =====
 
-const toggleFavorite = (id: number) => {
-setFavorites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
-};
+  const filteredProducts = products.filter((p) => {
+    const matchCategory =
+      selectedCategory === "Tất Cả" || p.category === selectedCategory;
+    const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchCategory && matchSearch;
+  });
 
-const addToCart = (product: Product) => {
-setCartItems(prev => [...prev, product]);
-};
+  const addToCart = (product: Product) => {
+    setCartItems((prev) => {
+      const exist = prev.find((item) => item.id === product.id);
+      if (exist) {
+        return prev.map((i) =>
+          i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+        );
+      }
+      return [...prev, { ...product, quantity: 1 }];
+    });
+  };
 
-return (
-  <ScrollView style={{ flex: 1, backgroundColor: '#fff' }}>
-    {/* Header */}
-    <View style={styles.header}>
-      <Menu width={24} height={24} />
-      <ThemedText type="title">Cửa Hàng Hoa</ThemedText>
-      <View>
-        <ShoppingCart width={24} height={24} />
-        {cartItems.length > 0 && (
-          <View style={styles.cartBadge}>
-            <Text style={styles.cartBadgeText}>{cartItems.length}</Text>
-          </View>
+  const updateQuantity = (id: number, quantity: number) => {
+    if (quantity === 0) {
+      setCartItems((prev) => prev.filter((i) => i.id !== id));
+    } else {
+      setCartItems((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, quantity } : i))
+      );
+    }
+  };
+
+  const toggleFavorite = (productId: number) => {
+    setFavorites((prev) =>
+      prev.includes(productId)
+        ? prev.filter((id) => id !== productId)
+        : [...prev, productId]
+    );
+  };
+
+  const handleCheckout = (info: any) => {
+    const newOrder: Order = {
+      id: `ORD${Date.now()}`,
+      date: new Date().toISOString(),
+      items: [...cartItems],
+      total: totalPrice + 50000,
+      status: "pending",
+    };
+    setOrders((prev) => [newOrder, ...prev]);
+    setCartItems([]);
+    setIsCheckoutOpen(false);
+    setIsCartOpen(false);
+    setActiveTab("orders");
+  };
+useEffect(() => {
+  const interval = setInterval(() => {
+    if (bannerImages.length > 0 && bannerRef.current) {
+      const nextIndex = (bannerIndex + 1) % bannerImages.length;
+      bannerRef.current.scrollToIndex({ index: nextIndex, animated: true });
+      setBannerIndex(nextIndex);
+    }
+  }, 3000); // 3 giây chuyển banner
+  return () => clearInterval(interval);
+}, [bannerIndex, bannerImages.length]);
+
+  const totalItems = cartItems.reduce((s, i) => s + i.quantity, 0);
+  const totalPrice = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
+
+  const favoriteProducts = products.filter((p) => favorites.includes(p.id));
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#f8f8f8" }}>
+      {/* ================= PRODUCT DETAIL MODAL ================= */}
+      <Modal
+        visible={!!selectedProduct}
+        animationType="slide"
+        transparent={false}
+      >
+        {selectedProduct && (
+          <ProductDetail
+            product={selectedProduct}
+            onBack={() => setSelectedProduct(null)}
+            onAddToCart={addToCart}
+            isWishlisted={favorites.includes(selectedProduct.id)}
+            onToggleWishlist={() => toggleFavorite(selectedProduct.id)}
+          />
         )}
-      </View>
-    </View>
-  {/* Search & Categories */}
-  <View style={styles.searchContainer}>
-    <View style={styles.searchBox}>
-      <Search width={20} height={20} />
-      <TextInput
-        placeholder="Tìm kiếm hoa..."
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        style={styles.searchInput}
-      />
-    </View>
+      </Modal>
 
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
-      <View style={{ flexDirection: 'row' }}>
-        {categories.map(cat => (
+      {!selectedProduct && (
+        <>
+          {/* ================= HOME TAB ================= */}
+          {activeTab === "home" && (
+            
+        <View style={{ flex: 1 }}>
+          {/* HEADER WITH BANNER */}
+          <View style={styles.headerBanner}>
+            {/* Header Top (kept minimal) */}
+            <View style={styles.header} />
+
+            {/* Search + Banner */}
+            <View style={styles.searchBannerContainer}>
+              {/* LOGO + TÊN */}
+              <View style={styles.headerLogo}>
+<MaterialCommunityIcons name="flower-tulip" size={28} color="#e91e63" style={{ marginRight: 8 }} />         
+       <Text style={styles.logoText}>SFlower Phálett</Text>
+              </View>             
+<View style={styles.searchRow}>
+  <View style={styles.searchBoxInline}>
+    <Image
+      source={require('../../assets/images/sreach.jpg')}
+      style={styles.smallBouquet}
+      resizeMode="cover"
+    />
+    <TextInput
+      placeholder="Search"
+      value={searchQuery}
+      onChangeText={setSearchQuery}
+      style={{ flex: 1, fontSize: 16, color: "#333" }}
+      placeholderTextColor="#ccc"
+    />
+  </View>
+
+  {/* Icon Giỏ Hàng */}
+  <TouchableOpacity onPress={() => setIsCartOpen(true)} style={{ marginLeft: 12, position: 'relative' }}>
+    <Ionicons name="cart-outline" size={28} color="#333" />
+    {totalItems > 0 && (
+      <View style={styles.badge}>
+        <Text style={styles.badgeText}>{totalItems}</Text>
+      </View>
+    )}
+  </TouchableOpacity>
+
+  {/* Icon Chat */}
+<TouchableOpacity 
+  onPress={() => setIsChatOpen(true)} 
+  style={{ marginLeft: 16 }}
+>
+  <Ionicons name="chatbubble-ellipses-outline" size={28} color="#333" />
+</TouchableOpacity>
+
+{/* Modal Chat */}
+<Modal visible={isChatOpen} animationType="slide">
+      <View style={{ flex: 1 }}>
+        <ChatScreen onBack={() => setIsChatOpen(false)} />
+      </View>
+    </Modal>
+  </View>
+            {/* MAP DISPLAY - CAROUSEL BANNER */}
+            <View style={styles.mapDisplayContainer}>
+        <FlatList
+          ref={bannerRef}
+          data={bannerImages}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(item) => item.id.toString()}
+          onMomentumScrollEnd={(event) => {
+            const contentOffsetX = event.nativeEvent.contentOffset.x;
+            const currentIndex = Math.round(contentOffsetX / windowWidth);
+            setBannerIndex(currentIndex);
+          }}
+          renderItem={({ item }) => (
+            <Image
+              source={item.image}
+              style={{
+                width: windowWidth - 32,
+                height: 140,
+                borderRadius: 12,
+              }}
+              resizeMode="cover"
+            />
+          )}
+          scrollEventThrottle={16}
+          snapToInterval={windowWidth - 32 + 16}
+          decelerationRate="fast"
+        />
+              {/* Dots indicator */}
+              <View style={styles.dotsContainer}>
+                {bannerImages.map((_, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.dot,
+                      idx === bannerIndex && styles.dotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+            </View>
+          </View>
+
+          {/* CATEGORY BUTTONS */}
+          <View style={styles.categoryContainer}>
+            {["Tất Cả", "Hoa Hồng", "Hoa Tulip", "Hoa Hướng Dương", "Hoa Lavender"].map((cat, idx) => {
+              const icons = ['list', 'gift', 'calendar', 'heart', 'star'];
+              const labels = ['Tất Cả', 'Birthday', 'Event', 'Wedding', 'For You'];
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  onPress={() => setSelectedCategory(cat)}
+                  style={[
+                    styles.categoryButton,
+                    selectedCategory === cat && styles.categoryButtonActive
+                  ]}
+                >
+                  <Ionicons 
+                    name={icons[idx] as any} 
+                    size={24} 
+                    color={selectedCategory === cat ? "#fff" : "#e91e63"} 
+                  />
+                  <Text
+                    style={{
+                      color: selectedCategory === cat ? "#fff" : "#333",
+                      fontSize: 11,
+                      marginTop: 4,
+                      textAlign: 'center',
+                      fontWeight: '500',
+                    }}
+                  >
+                    {labels[idx]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* PRODUCTS GRID */}
+          <FlatList
+            data={filteredProducts}
+            numColumns={2}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => (
+              <View style={styles.productWrapper}>
+                <TouchableOpacity 
+                  activeOpacity={0.7}
+                  onPress={() => setSelectedProduct(item)}
+                >
+                  <Image 
+                    source={item.image} 
+                    style={styles.productImage} 
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+                <View style={styles.productInfo}>
+                  <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
+                  <View style={styles.productFooter}>
+                    <Text style={styles.productPrice}>
+                      ₫ {item.price.toLocaleString()}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => toggleFavorite(item.id)}
+                      style={styles.heartButton}
+                    >
+                      <Ionicons
+                        name={favorites.includes(item.id) ? "heart" : "heart-outline"}
+                        size={16}
+                        color={favorites.includes(item.id) ? "#e91e63" : "#ccc"}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => addToCart(item)}
+                    style={styles.addToCartButton}
+                  >
+                    <Ionicons name="cart" size={16} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.addToCartText}>Thêm</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            contentContainerStyle={{ padding: 12 }}
+            columnWrapperStyle={{ justifyContent: 'space-between' }}
+          />
+        </View>
+      )}
+
+      {/* ========== OTHER PAGES ========== */}
+{activeTab === "categories" && (
+  <ProductsPage
+    products={products}
+    onAddToCart={addToCart}
+    favorites={favorites}
+    onToggleFavorite={toggleFavorite}
+    onPressImage={setSelectedProduct}
+    cartItems={cartItems}
+    onOpenCart={() => setIsCartOpen(true)}
+  />
+)}
+
+      {activeTab === "favorites" && (
+        <FavoritesPage
+          favorites={favoriteProducts}
+          onAddToCart={addToCart}
+          onToggleFavorite={toggleFavorite}
+          onPressImage={setSelectedProduct}
+        />
+      )}
+
+      {activeTab === "profile" && <ProfilePage
+        onOrdersClick={() => setActiveTab("orders")}
+        onWishlistClick={() => setActiveTab("favorites")}
+        onPaymentsClick={() => setActiveTab("payments")}
+        onNotificationsClick={() => setActiveTab("notifications")}
+        orderCount={orders.length}
+        wishlistCount={favorites.length}
+        unreadCount={3}
+        onLogout={logout}
+        user={user}
+      />}
+
+      {/* CART DRAWER */}
+      <CartDrawer
+        visible={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        cartItems={cartItems}
+        totalPrice={totalPrice}
+        onUpdateQuantity={(id, qty) => {}}
+        onRemoveItem={(id) => {}}
+        onCheckout={() => {
+          setIsCartOpen(false);
+          setIsCheckoutOpen(true);
+        }}
+      />
+
+      {/* CHECKOUT */}
+      {isCheckoutOpen && (
+        <Checkout
+          items={cartItems.map(item => ({ ...item, id: String(item.id) }))}
+          addresses={[]}
+          paymentMethods={[]}
+          onBack={() => setIsCheckoutOpen(false)}
+          onPlaceOrder={(address, payment, discount) => handleCheckout({ address, payment, discount })}
+        />
+      )}
+
+      {/* ========== BOTTOM NAVIGATION ========== */}
+      <View style={styles.bottomNav}>
+        {[
+          { key: "home", icon: "home-outline" as const, label: "Trang Chủ" },
+          { key: "categories", icon: "grid-outline" as const, label: "Sản phẩm" },
+          { key: "orders", icon: "cube-outline" as const, label: "Đơn Hàng" },
+          { key: "favorites", icon: "heart-outline" as const, label: "Yêu Thích" },
+          { key: "profile", icon: "person-outline" as const, label: "Tài Khoản" },
+        ].map((tab) => (
           <TouchableOpacity
-            key={cat}
-            onPress={() => setSelectedCategory(cat)}
-            style={[styles.categoryBtn, selectedCategory === cat && styles.categorySelected]}
+            key={tab.key}
+            onPress={() => setActiveTab(tab.key)}
+            style={styles.navItem}
           >
-            <Text style={[styles.categoryText, selectedCategory === cat && { color: 'white' }]}>{cat}</Text>
+            <Ionicons
+              name={tab.icon}
+              size={24}
+              color={activeTab === tab.key ? "#e91e63" : "#777"}
+            />
+            <Text
+              style={{
+                fontSize: 12,
+                color: activeTab === tab.key ? "#e91e63" : "#777",
+              }}
+            >
+              {tab.label}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
-    </ScrollView>
-  </View>
-
-  {/* Product List */}
-  <ScrollView contentContainerStyle={{ paddingHorizontal: 10 }}>
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-      {filteredProducts.map(p => (
-        <View key={p.id} style={{ width: '48%', marginBottom: 10 }}>
-          <View style={styles.productCard}>
-      <Image
-        source={p.image}        // Chỉ cần truyền URL string
-        style={styles.productImage}
-        contentFit="cover"/>      
-        <ThemedText type="subtitle">{p.name}</ThemedText>
-            <ThemedText type="defaultSemiBold">{p.price.toLocaleString()}₫</ThemedText>
-            <TouchableOpacity onPress={() => toggleFavorite(p.id)} style={styles.favoriteBtn}>
-              <Heart width={20} height={20} color={favorites.includes(p.id) ? 'red' : 'gray'} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => addToCart(p)} style={styles.addToCartBtn}>
-              <Text style={{ color: 'white' }}>Thêm vào giỏ</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ))}
+        </>
+      )}
     </View>
-  </ScrollView>
-
-  {/* Bottom Navigation */}
-  {/* <View style={styles.bottomNav}>
-    <TouchableOpacity style={styles.navItem}><HomeIcon width={24} height={24} color="pink" /><Text style={styles.navTextActive}>Trang Chủ</Text></TouchableOpacity>
-    <TouchableOpacity style={styles.navItem}><Grid3x3 width={24} height={24} /><Text style={styles.navText}>Danh Mục</Text></TouchableOpacity>
-    <TouchableOpacity style={styles.navItem}><Package width={24} height={24} /><Text style={styles.navText}>Đơn Hàng</Text></TouchableOpacity>
-    <TouchableOpacity style={styles.navItem}><Heart width={24} height={24} /><Text style={styles.navText}>Yêu Thích</Text></TouchableOpacity>
-    <TouchableOpacity style={styles.navItem}><User width={24} height={24} /><Text style={styles.navText}>Tài Khoản</Text></TouchableOpacity>
-  </View> */}
-  </ScrollView>
-
-);
+  );
 }
 
 const styles = StyleSheet.create({
-header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 10, backgroundColor: 'white' },
-cartBadge: { position: 'absolute', top: -5, right: -5, backgroundColor: 'pink', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
-cartBadgeText: { color: 'white', fontSize: 10 },
-searchContainer: { padding: 10 },
-searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f1f1', borderRadius: 10, paddingHorizontal: 10 },
-searchInput: { flex: 1, marginLeft: 5, height: 35 },
-categoryBtn: { paddingHorizontal: 15, paddingVertical: 5, borderRadius: 20, backgroundColor: '#eee', marginRight: 5 },
-categorySelected: { backgroundColor: 'pink' },
-categoryText: { color: '#555' },
-productCard: { backgroundColor: 'white', borderRadius: 10, padding: 5, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5, elevation: 2 },
-productImage: { width: '100%', height: 120, borderRadius: 8, marginBottom: 5 },
-favoriteBtn: { position: 'absolute', top: 5, right: 5 },
-addToCartBtn: { marginTop: 5, backgroundColor: 'pink', borderRadius: 8, paddingVertical: 5, alignItems: 'center' },
-bottomNav: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderColor: '#ccc', backgroundColor: 'white', paddingVertical: 5 },
-navItem: { flex: 1, alignItems: 'center' },
-navText: { fontSize: 10, color: '#555' },
+  header: {
+    padding: 16,
+    paddingTop: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: "#fdf6f8",
+    alignItems: "center",
+    elevation: 0,
+  },
+  headerBanner: {
+    backgroundColor: "#fdf6f8",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#999",
+    marginBottom: 2,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#333",
+  },
+  searchBannerContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#fdf6f8",
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#fff",
+  },
+  searchBox: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    padding: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#ffe4ed",
+    marginBottom: 12,
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  searchBoxInline: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "#ffe4ed",
+  },
+  smallBouquet: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  bannerContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#fff",
+  },
+  banner: {
+    backgroundColor: "#fde4ed",
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+  },
+  bannerText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#e91e63",
+    marginBottom: 12,
+  },
+  mapDisplayContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#fff",
+  },
+  dotsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 12,
+    gap: 6,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ddd",
+  },
+  dotActive: {
+    backgroundColor: "#e91e63",
+    width: 24,
+  },
+  categoryContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  categoryButton: {
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#ffe4ed",
+  },
+  categoryButtonActive: {
+    backgroundColor: "#e91e63",
+    borderColor: "#e91e63",
+  },
+  productWrapper: {
+    flex: 1,
+    marginHorizontal: 6,
+    marginVertical: 8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 2,
+  },
+  productImage: {
+    width: "100%",
+    height: 160,
+    backgroundColor: "#f5f5f5",
+  },
+  productInfo: {
+    padding: 10,
+  },
+  productName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 6,
+  },
+  productFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  productPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#e91e63",
+  },
+  heartButton: {
+    padding: 6,
+  },
+  addToCartButton: {
+    backgroundColor: "#e91e63",
+    borderRadius: 8,
+    paddingVertical: 8,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  addToCartText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  badge: {
+    position: "absolute",
+    top: -5,
+    right: -10,
+    backgroundColor: "#e91e63",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "600" },
+  bottomNav: {
+    height: 70,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    borderTopColor: "#ddd",
+    borderTopWidth: 1,
+    backgroundColor: "#fff",
+  },
+  navItem: {
+    alignItems: "center",
+  },
+  headerLogo: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginBottom: 12,
+},
+
+logoText: {
+  fontSize: 18,
+  fontWeight: "700",
+  color: "#e91e63",
+},
+
 });
