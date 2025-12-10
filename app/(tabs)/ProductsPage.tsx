@@ -9,8 +9,10 @@ import {
   StyleSheet,
   ScrollView,
   useWindowDimensions,
+  Modal,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import SearchScreen from "../../components/SearchScreen";
 import type { Product } from "./index";
 
 interface CartItem {
@@ -40,6 +42,7 @@ export function ProductsPage({
   const windowWidth = useWindowDimensions().width;
   const [selectedCategory, setSelectedCategory] = useState("Tất Cả");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
 
   const categories = ["Tất Cả", "Hoa Hồng", "Hoa Tulip", "Hoa Hướng Dương", "Hoa Lavender"];
   const categoryIcons = ["list", "gift", "calendar", "heart", "star"];
@@ -58,28 +61,42 @@ export function ProductsPage({
   return (
     <View style={{ flex: 1 }}>
       {/* SEARCH BAR + CART ICON */}
-<View style={styles.searchContainer}>
-  <View style={styles.searchBoxWrapper}>
-    <View style={styles.searchBox}>
-      <Image source={require('../../assets/images/sreach.jpg')} style={styles.searchIcon} />
-      <TextInput
-        placeholder="Search"
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        style={{ flex: 1, fontSize: 16, color: "#333" }}
-        placeholderTextColor="#ccc"
-      />
-    </View>
-    <TouchableOpacity onPress={onOpenCart} style={{ marginLeft: 12, position: 'relative' }}>
-      <Ionicons name="cart-outline" size={28} color="#333" />
-      {cartItems.length > 0 && (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{cartItems.length}</Text>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBoxWrapper}>
+          <TouchableOpacity
+            onPress={() => setShowSearch(true)}
+            activeOpacity={0.85}
+            style={{ flex: 1 }}
+          >
+            <View style={styles.searchBox}>
+              <Image source={require('../../assets/images/sreach.jpg')} style={styles.searchIcon} />
+              <Text style={{ flex: 1, fontSize: 16, color: "#999" }}>Tìm sản phẩm...</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onOpenCart} style={{ marginLeft: 12, position: 'relative' }}>
+            <Ionicons name="cart-outline" size={28} color="#333" />
+            {cartItems.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{cartItems.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
-      )}
-    </TouchableOpacity>
-  </View>
-</View>
+      </View>
+
+      {/* Modal Search (full screen) */}
+      <Modal visible={showSearch} animationType="slide">
+        <View style={{ flex: 1 }}>
+          <SearchScreen
+            navigation={{ goBack: () => setShowSearch(false) } as any}
+            products={products}
+            onPressProduct={(product) => {
+              setShowSearch(false);
+              onPressImage?.(product);
+            }}
+          />
+        </View>
+      </Modal>
 
       {/* CATEGORY BUTTONS */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 12, marginVertical: 10 }}>
@@ -152,7 +169,7 @@ export function ProductsPage({
 const styles = StyleSheet.create({
 searchContainer: { 
   padding: 12, 
-  paddingTop: 30, // kéo xuống thấp hơn
+  paddingTop: 35, // kéo xuống thấp hơn
   backgroundColor: "#fff",
 },
 searchBoxWrapper: {
@@ -168,6 +185,7 @@ searchBox: {
   padding: 8, 
   borderRadius: 12, 
   borderWidth: 1.5, 
+  paddingVertical: 20,
   borderColor: "#ffe4ed" 
 },
 searchIcon: { 

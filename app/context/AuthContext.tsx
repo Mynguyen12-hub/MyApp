@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export interface UserInfo {
   name: string;
   email: string;
+  phone?: string;
 }
 
 interface AuthContextType {

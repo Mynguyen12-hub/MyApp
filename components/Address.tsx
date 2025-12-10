@@ -7,25 +7,51 @@ import {
   ScrollView,
   FlatList,
   Image,
+  Modal,
+  TextInput,
+  Switch,
+  Alert,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Address, DEFAULT_ADDRESSES } from "../data/addressData";
 
-interface Address {
-  id: string;
-  name: string;
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
-  phone: string;
-  isDefault?: boolean;
+// Custom hook for address management - can be used anywhere
+export function useAddresses() {
+  const [addresses, setAddresses] = useState<Address[]>(DEFAULT_ADDRESSES);
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(DEFAULT_ADDRESSES[0] || null);
+
+  const updateAddresses = (newAddresses: Address[]) => {
+    setAddresses(newAddresses);
+  };
+
+  const selectAddress = (address: Address) => {
+    setSelectedAddress(address);
+  };
+
+  const addAddress = (address: Address) => {
+    setAddresses([...addresses, address]);
+  };
+
+  const removeAddress = (id: string) => {
+    setAddresses(addresses.filter(a => a.id !== id));
+  };
+
+  return {
+    addresses,
+    selectedAddress,
+    setAddresses: updateAddresses,
+    selectAddress,
+    addAddress,
+    removeAddress,
+  };
 }
 
 interface AddressManagementProps {
   addresses: Address[];
   onBack: () => void;
   onSelectAddress: (address: Address) => void;
-  onAddAddress?: () => void;
+  onAddAddress?: (address?: Address) => void;
+  onRemoveAddress?: (id: string) => void;
 }
 
 export function AddressManagement({
@@ -33,11 +59,110 @@ export function AddressManagement({
   onBack,
   onSelectAddress,
   onAddAddress,
+  onRemoveAddress,
 }: AddressManagementProps) {
   const [selectedAddress, setSelectedAddress] = useState<Address | null>(
     addresses[0] || null
   );
   const [useCurrentLocation, setUseCurrentLocation] = useState(false);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formPhone, setFormPhone] = useState('');
+  const [formStreet, setFormStreet] = useState('');
+  const [formCity, setFormCity] = useState('');
+  const [formIsDefault, setFormIsDefault] = useState(false);
+  const [formType, setFormType] = useState<'Văn Phòng' | 'Nhà Riêng'>('Văn Phòng');
+
+  const openAddModal = () => {
+    setEditingId(null);
+    setFormName('');
+    setFormPhone('');
+    setFormStreet('');
+    setFormCity('');
+    setFormIsDefault(false);
+    setFormType('Văn Phòng');
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (address: Address) => {
+    setEditingId(address.id);
+    setFormName(address.name || '');
+    setFormPhone(address.phone || '');
+    setFormStreet(address.street || '');
+    setFormCity(address.city || '');
+    setFormIsDefault(!!address.isDefault);
+    setFormType(address.name && address.name.includes('Văn') ? 'Văn Phòng' : 'Nhà Riêng');
+    setShowAddModal(true);
+  };
+
+  const closeAddModal = () => setShowAddModal(false);
+
+  const handleSaveNewAddress = () => {
+    const newAddr: Address = {
+      id: editingId || Date.now().toString(),
+      name: formName || (formType === 'Văn Phòng' ? 'Văn Phòng' : 'Nhà Riêng'),
+      street: formStreet || 'Địa chỉ',
+      city: formCity || '',
+      state: '',
+      zip: '',
+      phone: formPhone || '',
+      isDefault: formIsDefault,
+    };
+    onAddAddress?.(newAddr);
+    onSelectAddress(newAddr);
+    setSelectedAddress(newAddr);
+    setEditingId(null);
+    setShowAddModal(false);
+  };
+
+  const handleDeleteAddress = () => {
+    if (!editingId) {
+      console.log('No editingId found');
+      return;
+    }
+    console.log('Delete address with ID:', editingId);
+    Alert.alert(
+      'Xóa địa chỉ',
+      'Bạn có chắc muốn xóa địa chỉ này?',
+      [
+        { text: 'Huỷ', style: 'cancel' },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: () => {
+            console.log('Confirmed delete, calling onRemoveAddress');
+            const addressToDelete = editingId;
+            onRemoveAddress?.(addressToDelete);
+            setShowAddModal(false);
+            setEditingId(null);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMapPickForForm = async () => {
+    try {
+      // @ts-ignore
+      const Location: any = await import('expo-location');
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Quyền vị trí bị từ chối.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = pos.coords;
+      setFormStreet(`Lat: ${latitude.toFixed(4)}`);
+      setFormCity(`Lon: ${longitude.toFixed(4)}`);
+      setFormName('Địa chỉ hiện tại');
+    } catch (e) {
+      setFormStreet('Vị trí hiện tại');
+      setFormCity('Gần đây');
+      setFormName('Địa chỉ hiện tại');
+    }
+  };
 
   const handleSelectAddress = (address: Address) => {
     setSelectedAddress(address);
@@ -46,6 +171,49 @@ export function AddressManagement({
   const handleSaveAddress = () => {
     if (selectedAddress) {
       onSelectAddress(selectedAddress);
+    }
+  };
+
+  const handleAddCurrentLocation = async () => {
+    try {
+      // dynamic import - may not be installed in every workspace; ignore TS module error
+      // @ts-ignore
+      const Location: any = await import('expo-location');
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Quyền vị trí bị từ chối. Vui lòng bật quyền vị trí và thử lại.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = pos.coords;
+      const newAddr: Address = {
+        id: Date.now().toString(),
+        name: 'Địa chỉ hiện tại',
+        street: `Lat: ${latitude.toFixed(4)}`,
+        city: `Lon: ${longitude.toFixed(4)}`,
+        state: '',
+        zip: '',
+        phone: '',
+        isDefault: false,
+      };
+      setSelectedAddress(newAddr);
+      onAddAddress?.(newAddr);
+      onSelectAddress(newAddr);
+    } catch (e) {
+      // fallback when expo-location isn't available or fails
+      const newAddr: Address = {
+        id: Date.now().toString(),
+        name: 'Địa chỉ hiện tại',
+        street: 'Vị trí hiện tại',
+        city: 'Gần đây',
+        state: '',
+        zip: '',
+        phone: '',
+        isDefault: false,
+      };
+      setSelectedAddress(newAddr);
+      onAddAddress?.(newAddr);
+      onSelectAddress(newAddr);
     }
   };
 
@@ -91,16 +259,21 @@ export function AddressManagement({
                   </Text>
                   <Text style={styles.addressPhone}>{item.phone}</Text>
                 </View>
-                {selectedAddress?.id === item.id && (
-                  <Ionicons name="checkmark-circle" size={24} color="#e91e63" />
-                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity onPress={() => openEditModal(item)} style={{ padding: 6, marginRight: 8 }}>
+                    <Ionicons name="create" size={18} color="#666" />
+                  </TouchableOpacity>
+                  {selectedAddress?.id === item.id && (
+                    <Ionicons name="checkmark-circle" size={24} color="#e91e63" />
+                  )}
+                </View>
               </TouchableOpacity>
             )}
           />
 
           {/* CHOOSE ANOTHER OPTION */}
           <TouchableOpacity
-            onPress={onAddAddress}
+            onPress={openAddModal}
             style={styles.chooseAnotherButton}
           >
             <View style={styles.chooseAnotherIcon}>
@@ -121,7 +294,7 @@ export function AddressManagement({
           <Text style={styles.sectionTitle}>Choose location</Text>
 
           {/* MAP PLACEHOLDER */}
-          <View style={styles.mapContainer}>
+          <TouchableOpacity style={styles.mapContainer} onPress={() => (showAddModal ? handleMapPickForForm() : handleAddCurrentLocation())} activeOpacity={0.8}>
             <Image
               source={require("../assets/images/hoahong.jpg")}
               style={styles.mapImage}
@@ -130,7 +303,69 @@ export function AddressManagement({
             <View style={styles.mapOverlay}>
               <Ionicons name="location" size={40} color="#e91e63" />
             </View>
-          </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.mapSelectButton} onPress={() => (showAddModal ? handleMapPickForForm() : handleAddCurrentLocation())}>
+            <Text style={styles.mapSelectText}>Chọn vị trí này</Text>
+          </TouchableOpacity>
+
+          {/* Add/Edit Address Modal - opens when tapping 'Choose another' */}
+          <Modal visible={showAddModal} animationType="slide">
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <TouchableOpacity onPress={closeAddModal} style={{ padding: 8 }}>
+                  <Ionicons name="arrow-back" size={24} color="#333" />
+                </TouchableOpacity>
+                <Text style={styles.modalTitle}>{editingId ? 'Sửa địa chỉ' : 'Địa chỉ mới'}</Text>
+                <View style={{ width: 40 }} />
+              </View>
+
+              <ScrollView style={{ padding: 16 }}>
+                <Text style={styles.inputLabel}>Họ và tên</Text>
+                <TextInput value={formName} onChangeText={setFormName} style={styles.input} placeholder="Họ và tên" />
+
+                <Text style={styles.inputLabel}>Số điện thoại</Text>
+                <TextInput value={formPhone} onChangeText={setFormPhone} style={styles.input} placeholder="Số điện thoại" keyboardType="phone-pad" />
+
+                <Text style={styles.inputLabel}>Tỉnh/Thành phố, Quận/Huyện, Phường/Xã</Text>
+                <TextInput value={formCity} onChangeText={setFormCity} style={styles.input} placeholder="Tỉnh/Thành phố" />
+
+                <Text style={styles.inputLabel}>Tên đường, Tòa nhà, Số nhà</Text>
+                <TextInput value={formStreet} onChangeText={setFormStreet} style={styles.input} placeholder="Địa chỉ" />
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                  <Text>Đặt làm địa chỉ mặc định</Text>
+                  <Switch value={formIsDefault} onValueChange={setFormIsDefault} />
+                </View>
+
+                <Text style={[styles.inputLabel, { marginTop: 12 }]}>Loại địa chỉ</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity onPress={() => setFormType('Văn Phòng')} style={[styles.typeButton, formType === 'Văn Phòng' && styles.typeButtonActive]}>
+                    <Text style={formType === 'Văn Phòng' ? styles.typeTextActive : styles.typeText}>Văn Phòng</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setFormType('Nhà Riêng')} style={[styles.typeButton, formType === 'Nhà Riêng' && styles.typeButtonActive]}>
+                    <Text style={formType === 'Nhà Riêng' ? styles.typeTextActive : styles.typeText}>Nhà Riêng</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.formButtons}>
+                  {editingId ? (
+                    <TouchableOpacity onPress={handleDeleteAddress} style={styles.deleteButton}>
+                      <Text style={{ color: '#fff', fontWeight: '600', textAlign: 'center' }}>Xóa địa chỉ này</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity onPress={closeAddModal} style={[styles.cancelButton, { flex: 1 }]}>
+                      <Text style={{ textAlign: 'center' }}>Huỷ</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleSaveNewAddress} style={[styles.saveButtonPrimary, { flex: 1 }]}>
+                      <Text style={{ color: '#fff', fontWeight: '600', textAlign: 'center' }}>Hoàn thành</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
+          </Modal>
 
           {/* USE CURRENT LOCATION TOGGLE */}
           <TouchableOpacity
@@ -172,6 +407,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fdf6f8",
+    paddingTop: 22,
   },
   header: {
     flexDirection: "row",
@@ -345,4 +581,59 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#fff",
   },
+  mapSelectButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1.5,
+    borderColor: '#ffe4ed',
+  },
+  mapSelectText: {
+    color: '#e91e63',
+    fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    backgroundColor: '#fff',
+  },
+  modalTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600' },
+  inputLabel: { fontSize: 13, color: '#666', marginBottom: 6 },
+  input: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 12,
+  },
+  typeButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  typeButtonActive: {
+    borderColor: '#e91e63',
+    backgroundColor: '#fdeff5',
+  },
+  typeText: { color: '#333' },
+  typeTextActive: { color: '#e91e63', fontWeight: '600' },
+  formButtons: { marginTop: 20 },
+  cancelButton: { padding: 12, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#eee' },
+  saveButtonPrimary: { padding: 12, backgroundColor: '#e91e63', borderRadius: 8 },
+  deleteButton: { padding: 12, backgroundColor: '#ef4444', borderRadius: 8, marginBottom: 12 },
 });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Flower2, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useRouter } from 'expo-router';
@@ -13,6 +13,18 @@ export default function LoginScreen() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const handleLogin = async () => {
+    setErrorMessage("");
+    
+    // Validate input
+    if (!email.trim()) {
+      setErrorMessage("Vui lòng nhập email");
+      return;
+    }
+    if (!password.trim()) {
+      setErrorMessage("Vui lòng nhập mật khẩu");
+      return;
+    }
+    
     try {
       const response = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4`,
@@ -20,13 +32,15 @@ export default function LoginScreen() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email,
+            email: email.trim(),
             password,
             returnSecureToken: true,
           }),
         }
       );
       const result = await response.json();
+
+      console.log("Firebase response:", result);
 
       if (result.idToken) {
         console.log("Đăng nhập thành công:", result.email);
@@ -37,25 +51,27 @@ export default function LoginScreen() {
         });
         router.replace("/(tabs)");
       } else {
-        const errorCode = result.error?.message;
-        switch (errorCode) {
-          case "EMAIL_NOT_FOUND":
-            setErrorMessage("Email này chưa được đăng ký");
-            break;
-          case "INVALID_PASSWORD":
-            setErrorMessage("Bạn nhập sai mật khẩu");
-            break;
-          case "INVALID_EMAIL":
-            setErrorMessage("Định dạng email không hợp lệ");
-            break;
-          case "USER_DISABLED":
-            setErrorMessage("Tài khoản này đã bị vô hiệu hóa");
-            break;
-          default:
-            setErrorMessage("Đăng nhập thất bại, vui lòng thử lại");
+        // Extract error message from Firebase response
+        const errorMsg = result.error?.message;
+        console.log("Firebase error:", errorMsg);
+        
+        // Firebase error codes
+        if (errorMsg?.includes("EMAIL_NOT_FOUND")) {
+          setErrorMessage("Email này chưa được đăng ký");
+        } else if (errorMsg?.includes("INVALID_PASSWORD")) {
+          setErrorMessage("Mật khẩu không chính xác");
+        } else if (errorMsg?.includes("INVALID_EMAIL")) {
+          setErrorMessage("Định dạng email không hợp lệ");
+        } else if (errorMsg?.includes("USER_DISABLED")) {
+          setErrorMessage("Tài khoản này đã bị vô hiệu hóa");
+        } else if (errorMsg?.includes("TOO_MANY_ATTEMPTS")) {
+          setErrorMessage("Quá nhiều lần thử. Vui lòng thử lại sau.");
+        } else {
+          setErrorMessage(errorMsg || "Đăng nhập thất bại, vui lòng thử lại");
         }
       }
     } catch (error) {
+      console.error("Login error:", error);
       setErrorMessage("Lỗi kết nối, vui lòng kiểm tra mạng");
     }
   };
@@ -104,9 +120,15 @@ export default function LoginScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={{ alignSelf: 'flex-end', marginBottom: 16 }}>
+        <TouchableOpacity style={{ alignSelf: 'flex-end', marginBottom: 16 }} onPress={() => router.push('/(auth)/ForgotPassword')}>
           <Text style={{ color: '#ec4899' }}>Quên Mật Khẩu?</Text>
         </TouchableOpacity>
+
+        {errorMessage ? (
+          <View style={{ backgroundColor: '#fee2e2', padding: 12, borderRadius: 8, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: '#ef4444' }}>
+            <Text style={{ color: '#991b1b', fontSize: 13 }}>{errorMessage}</Text>
+          </View>
+        ) : null}
 
         <TouchableOpacity style={styles.submitButton} onPress={handleLogin}>
           <Text style={styles.submitButtonText}>Đăng Nhập</Text>
@@ -115,6 +137,13 @@ export default function LoginScreen() {
         <TouchableOpacity onPress={() => router.push('/(auth)/Register')}>
           <Text style={styles.switchText}>Chưa có tài khoản? Đăng Ký</Text>
         </TouchableOpacity>
+
+        <View style={{ marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
+          <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>📝 Test Tài Khoản:</Text>
+          <Text style={{ fontSize: 12, color: '#374151', fontFamily: 'monospace' }}>Email: test@example.com</Text>
+          <Text style={{ fontSize: 12, color: '#374151', fontFamily: 'monospace' }}>Pass: test123456</Text>
+          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>Hoặc đăng ký tài khoản mới bên dưới</Text>
+        </View>
       </View>
     </ScrollView>
   );

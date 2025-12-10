@@ -11,6 +11,8 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
+import { useNavigation } from '@react-navigation/native';
+
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ProductCard } from '../../components/ProductCard';
@@ -24,6 +26,8 @@ import { Checkout } from "../../components/Checkout";
 import { ImageSourcePropType } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import ChatScreen from "../../components/ChatScreen";
+import SearchScreen from "../../components/SearchScreen";
+import { DEFAULT_ADDRESSES } from '../../data/addressData';
 export interface Product {
   id: number;
   name: string;
@@ -93,6 +97,7 @@ export default function HomeScreen() {
   const { logout, user } = useAuth();
   const windowWidth = useWindowDimensions().width;
   const [selectedCategory, setSelectedCategory] = useState("Tất Cả");
+  const [showSearch, setShowSearch] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -105,6 +110,19 @@ export default function HomeScreen() {
   const [bannerIndex, setBannerIndex] = useState(0);
   const bannerRef = useRef<FlatList>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [openProfileNotifications, setOpenProfileNotifications] = useState(false);
+  const [profileIncomingNotification, setProfileIncomingNotification] = useState<null | any>(null);
+  const navigation = useNavigation();
+
+  // Address and Payment Methods state
+  const [addresses, setAddresses] = useState(DEFAULT_ADDRESSES);
+
+  const [paymentMethods] = useState([
+    { id: 'cod', type: 'cod' as const, label: 'Thanh toán khi nhận hàng', isDefault: true },
+    { id: 'momo', type: 'momo' as const, label: 'Ví MoMo' },
+    { id: 'bank', type: 'bank' as const, label: 'Chuyển khoản ngân hàng' },
+  ]);
+
   // Banner images (3-4 ảnh)
   const bannerImages = [
     { id: 1, image: require('../../assets/images/baner1.jpg') },
@@ -165,6 +183,16 @@ export default function HomeScreen() {
     setIsCheckoutOpen(false);
     setIsCartOpen(false);
     setActiveTab("orders");
+    // create a notification for the new order and send to ProfilePage
+    const notif = {
+      id: `N${Date.now()}`,
+      type: 'order',
+      title: `Đơn hàng ${newOrder.id} đã được tạo`,
+      message: `Đơn hàng ${newOrder.id} của bạn đã được tạo thành công.`,
+      time: 'Vừa xong',
+      read: false,
+    };
+    setProfileIncomingNotification(notif);
   };
 useEffect(() => {
   const interval = setInterval(() => {
@@ -220,23 +248,29 @@ useEffect(() => {
        <Text style={styles.logoText}>SFlower Phálett</Text>
               </View>             
 <View style={styles.searchRow}>
-  <View style={styles.searchBoxInline}>
-    <Image
-      source={require('../../assets/images/sreach.jpg')}
-      style={styles.smallBouquet}
-      resizeMode="cover"
-    />
-    <TextInput
-      placeholder="Search"
-      value={searchQuery}
-      onChangeText={setSearchQuery}
-      style={{ flex: 1, fontSize: 16, color: "#333" }}
-      placeholderTextColor="#ccc"
-    />
-  </View>
+  {/* Search */}
+    <TouchableOpacity
+      onPress={() => setShowSearch(true)}
+      activeOpacity={0.85}
+      style={{ flex: 1 }}
+    >
+      <View style={styles.searchBoxInline}>
+        <Image
+          source={require('../../assets/images/sreach.jpg')}
+          style={styles.smallBouquet}
+          resizeMode="cover"
+        />
+        <Text style={{ flex: 1, fontSize: 16, color: "#999" }}>
+          Tìm sản phẩm...
+        </Text>
+      </View>
+    </TouchableOpacity>
 
   {/* Icon Giỏ Hàng */}
-  <TouchableOpacity onPress={() => setIsCartOpen(true)} style={{ marginLeft: 12, position: 'relative' }}>
+  <TouchableOpacity
+    onPress={() => setIsCartOpen(true)}
+    style={{ marginLeft: 12, position: "relative" }}
+  >
     <Ionicons name="cart-outline" size={28} color="#333" />
     {totalItems > 0 && (
       <View style={styles.badge}>
@@ -246,20 +280,29 @@ useEffect(() => {
   </TouchableOpacity>
 
   {/* Icon Chat */}
-<TouchableOpacity 
-  onPress={() => setIsChatOpen(true)} 
-  style={{ marginLeft: 16 }}
->
-  <Ionicons name="chatbubble-ellipses-outline" size={28} color="#333" />
-</TouchableOpacity>
+  <TouchableOpacity
+    onPress={() => setIsChatOpen(true)}
+    style={{ marginLeft: 12 }}
+  >
+    <Ionicons name="chatbubble-ellipses-outline" size={28} color="#333" />
+  </TouchableOpacity>
+</View>
+  
 
-{/* Modal Chat */}
-<Modal visible={isChatOpen} animationType="slide">
+    {/* Modal Search (full screen) */}
+    <Modal visible={showSearch} animationType="slide">
       <View style={{ flex: 1 }}>
-        <ChatScreen onBack={() => setIsChatOpen(false)} />
+        <SearchScreen
+          navigation={{ goBack: () => setShowSearch(false) } as any}
+          products={products}
+          onPressProduct={(product) => {
+            setShowSearch(false);
+            setSelectedProduct(product);
+          }}
+        />
       </View>
     </Modal>
-  </View>
+
             {/* MAP DISPLAY - CAROUSEL BANNER */}
             <View style={styles.mapDisplayContainer}>
         <FlatList
@@ -279,7 +322,7 @@ useEffect(() => {
               source={item.image}
               style={{
                 width: windowWidth - 32,
-                height: 140,
+                height: 120,
                 borderRadius: 12,
               }}
               resizeMode="cover"
@@ -288,6 +331,15 @@ useEffect(() => {
           scrollEventThrottle={16}
           snapToInterval={windowWidth - 32 + 16}
           decelerationRate="fast"
+          getItemLayout={(data, index) => ({
+            length: windowWidth - 32 + 16,
+            offset: (windowWidth - 32 + 16) * index,
+            index,
+          })}
+          onScrollToIndexFailed={() => {
+            // Fallback if scroll fails
+            console.warn('Banner scroll to index failed');
+          }}
         />
               {/* Dots indicator */}
               <View style={styles.dotsContainer}>
@@ -417,11 +469,20 @@ useEffect(() => {
         onWishlistClick={() => setActiveTab("favorites")}
         onPaymentsClick={() => setActiveTab("payments")}
         onNotificationsClick={() => setActiveTab("notifications")}
+        onOpenChat={() => setIsChatOpen(true)}
+        onOpenCart={() => setIsCartOpen(true)}
         orderCount={orders.length}
         wishlistCount={favorites.length}
         unreadCount={3}
         onLogout={logout}
         user={user}
+        addresses={addresses}
+        onAddressesChange={setAddresses}
+        orders={orders}
+        openNotifications={openProfileNotifications}
+        onNotificationsHandled={() => setOpenProfileNotifications(false)}
+        incomingNotification={profileIncomingNotification}
+        onIncomingHandled={() => setProfileIncomingNotification(null)}
       />}
 
       {/* CART DRAWER */}
@@ -430,37 +491,59 @@ useEffect(() => {
         onClose={() => setIsCartOpen(false)}
         cartItems={cartItems}
         totalPrice={totalPrice}
-        onUpdateQuantity={(id, qty) => {}}
-        onRemoveItem={(id) => {}}
+        onUpdateQuantity={updateQuantity}
+        onRemoveItem={(id) => updateQuantity(id, 0)}
         onCheckout={() => {
           setIsCartOpen(false);
           setIsCheckoutOpen(true);
         }}
       />
 
-      {/* CHECKOUT */}
-      {isCheckoutOpen && (
+      {/* Global Chat Modal (moved out of home view so it works from any tab) */}
+      <Modal visible={isChatOpen} animationType="slide">
+        <View style={{ flex: 1 }}>
+          <ChatScreen onBack={() => setIsChatOpen(false)} />
+        </View>
+      </Modal>
+
+      {/* CHECKOUT - Full screen modal */}
+      <Modal
+        visible={isCheckoutOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
         <Checkout
           items={cartItems.map(item => ({ ...item, id: String(item.id) }))}
-          addresses={[]}
-          paymentMethods={[]}
-          onBack={() => setIsCheckoutOpen(false)}
+          addresses={addresses}
+          paymentMethods={paymentMethods}
+          onBack={() => {
+            setIsCheckoutOpen(false);
+            setIsCartOpen(true);
+          }}
           onPlaceOrder={(address, payment, discount) => handleCheckout({ address, payment, discount })}
         />
-      )}
+      </Modal>
 
       {/* ========== BOTTOM NAVIGATION ========== */}
       <View style={styles.bottomNav}>
         {[
           { key: "home", icon: "home-outline" as const, label: "Trang Chủ" },
           { key: "categories", icon: "grid-outline" as const, label: "Sản phẩm" },
-          { key: "orders", icon: "cube-outline" as const, label: "Đơn Hàng" },
+          { key: "notifications", icon: "notifications-outline" as const, label: "Thông báo" },
           { key: "favorites", icon: "heart-outline" as const, label: "Yêu Thích" },
           { key: "profile", icon: "person-outline" as const, label: "Tài Khoản" },
         ].map((tab) => (
           <TouchableOpacity
             key={tab.key}
-            onPress={() => setActiveTab(tab.key)}
+            onPress={() => {
+              // If user taps the Notifications bottom tab, open Profile and show notifications there
+              if (tab.key === 'notifications') {
+                setActiveTab('profile');
+                setOpenProfileNotifications(true);
+                return;
+              }
+              setActiveTab(tab.key);
+            }}
             style={styles.navItem}
           >
             <Ionicons
@@ -539,13 +622,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#fff",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 20,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "#ffe4ed",
+    
+  },
+  searchInputInline: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 4,
+    color: '#333'
   },
   smallBouquet: {
-    width: 32,
+    width: 40,
     height: 32,
     borderRadius: 8,
     marginRight: 8,
@@ -571,6 +661,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: "#fff",
+    marginTop: 10
   },
   dotsContainer: {
     flexDirection: "row",
@@ -579,6 +670,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 6,
   },
+  
   dot: {
     width: 8,
     height: 8,

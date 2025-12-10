@@ -20,14 +20,20 @@ function AuthGate() {
   useEffect(() => {
     if (!mounted || !isAuthLoaded) return;
 
-    if (!isOnboardingComplete) {
-      // Show onboarding first time
+    // If user is not logged in, show Onboarding first (per request)
+    if (!isLoggedIn) {
       router.replace('/(onboarding)/OnboardingScreen');
-    } else if (isLoggedIn) {
-      router.replace('/(tabs)'); // đúng → app/(tabs)/index.tsx
-    } else {
-      router.replace('/(auth)/Login'); // đúng → app/(auth)/Login.tsx
+      return;
     }
+
+    // If logged in but onboarding not complete, show onboarding
+    if (!isOnboardingComplete) {
+      router.replace('/(onboarding)/OnboardingScreen');
+      return;
+    }
+
+    // Otherwise go to main tabs
+    router.replace('/(tabs)'); // app/(tabs)/index.tsx
   }, [isLoggedIn, isAuthLoaded, isOnboardingComplete, mounted]);
 
   return <Slot />;
