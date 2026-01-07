@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
-import { Flower2, Eye, EyeOff } from 'lucide-react-native';
-import { useAuth } from '../context/AuthContext';
 import { useRouter } from 'expo-router';
+import { Eye, EyeOff, Flower2 } from 'lucide-react-native';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen() {
   const { login, setUser } = useAuth();

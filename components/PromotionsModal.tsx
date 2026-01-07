@@ -1,14 +1,14 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import React from 'react';
 import {
-  View,
+  FlatList,
+  Modal,
+  SafeAreaView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  Modal,
-  StyleSheet,
-  FlatList,
-  SafeAreaView,
+  View,
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
 
 export interface Promotion {
   id: number;
@@ -76,11 +76,59 @@ export function PromotionsModal({
 }: PromotionsModalProps) {
   const [tempFreeshipId, setTempFreeshipId] = React.useState<number | undefined>(selectedFreeshipId);
   const [tempPercentId, setTempPercentId] = React.useState<number | undefined>(selectedPercentId);
+  const [vouchersLoading, setVouchersLoading] = React.useState(false);
+  const [vouchersError, setVouchersError] = React.useState<string | null>(null);
+  const [remoteFreeshipPromos, setRemoteFreeshipPromos] = React.useState<Promotion[] | null>(null);
+  const [remotePercentPromos, setRemotePercentPromos] = React.useState<Promotion[] | null>(null);
 
   React.useEffect(() => {
     setTempFreeshipId(selectedFreeshipId);
     setTempPercentId(selectedPercentId);
   }, [selectedFreeshipId, selectedPercentId, visible]);
+
+  React.useEffect(() => {
+    if (!visible) return;
+    const loadVouchers = async () => {
+      setVouchersLoading(true);
+      setVouchersError(null);
+      try {
+        // Firestore REST endpoint
+        const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
+        const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/vouchers?key=${key}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const docs = json.documents || [];
+
+        const promos: Promotion[] = docs.map((doc: any, idx: number) => {
+          const f = doc.fields || {};
+          const id = Number(f.id?.integerValue || f.id?.stringValue || (idx + 1));
+          const rawType = f.type?.stringValue || f.promoType?.stringValue || '';
+          const type = rawType === 'freeship' ? 'freeship' : 'percent';
+          return {
+            id,
+            title: f.title?.stringValue || f.name?.stringValue || f.code?.stringValue || `Promo ${id}`,
+            description: f.description?.stringValue || f.desc?.stringValue || '',
+            discount: f.discount?.stringValue || f.amount?.stringValue || f.code?.stringValue || '',
+            icon: f.icon?.stringValue || (type === 'freeship' ? 'car' : 'pricetag'),
+            type,
+          } as Promotion;
+        });
+
+        const freeship = promos.filter((p) => p.type === 'freeship');
+        const percent = promos.filter((p) => p.type === 'percent');
+        setRemoteFreeshipPromos(freeship.length ? freeship : null);
+        setRemotePercentPromos(percent.length ? percent : null);
+      } catch (e: any) {
+        console.warn('Vouchers fetch from Firestore failed', e?.message || e);
+        setVouchersError('Không lấy được mã giảm giá từ Firebase');
+      } finally {
+        setVouchersLoading(false);
+      }
+    };
+
+    loadVouchers();
+  }, [visible]);
 
   const handleSelectPromotion = (promo: Promotion) => {
     if (promo.type === 'freeship') {
@@ -99,9 +147,9 @@ export function PromotionsModal({
   };
 
   const handleConfirm = () => {
-    const selectedFreeshipPromo = FREESHIP_PROMOS.find((p) => p.id === tempFreeshipId) || null;
-    const selectedPercentPromo = PERCENT_PROMOS.find((p) => p.id === tempPercentId) || null;
-    onConfirm(selectedFreeshipPromo, selectedPercentPromo);
+    const frees = (remoteFreeshipPromos ?? FREESHIP_PROMOS).find((p) => p.id === tempFreeshipId) || null;
+    const perc = (remotePercentPromos ?? PERCENT_PROMOS).find((p) => p.id === tempPercentId) || null;
+    onConfirm(frees, perc);
     onClose();
   };
 
@@ -159,19 +207,30 @@ export function PromotionsModal({
         </View>
 
         {/* Promotions List */}
+        {vouchersLoading && (
+          <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+            <Text>Đang tải mã giảm giá...</Text>
+          </View>
+        )}
+        {vouchersError && (
+          <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+            <Text style={{ color: '#e91e63' }}>{vouchersError}</Text>
+          </View>
+        )}
+
         <FlatList
           data={[
             {
               type: 'section',
               title: 'Miễn phí giao hàng',
-              items: FREESHIP_PROMOS,
+              items: remoteFreeshipPromos ?? FREESHIP_PROMOS,
               selectedId: tempFreeshipId,
               promoType: 'freeship',
             },
             {
               type: 'section',
               title: 'Giảm giá',
-              items: PERCENT_PROMOS,
+              items: remotePercentPromos ?? PERCENT_PROMOS,
               selectedId: tempPercentId,
               promoType: 'percent',
             },
@@ -191,9 +250,9 @@ export function PromotionsModal({
                   </TouchableOpacity>
                 )}
               </View>
-              {section.items.map((promo: Promotion) =>
-                renderPromoItem(promo, section.selectedId, section.promoType)
-              )}
+                  {section.items.map((promo: Promotion) =>
+                    renderPromoItem(promo, section.selectedId, section.promoType)
+                  )}
             </View>
           )}
           keyExtractor={(item) => item.title}

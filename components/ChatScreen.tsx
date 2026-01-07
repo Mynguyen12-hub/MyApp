@@ -1,17 +1,17 @@
-import React, { useState, useRef, useEffect } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
+  FlatList,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Image,
-  Keyboard,
+  View,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 
 interface Message {
   id: string;
@@ -49,39 +49,53 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
     };
   }, []);
 
-  const sendMessage = async () => {
-    if (!inputText.trim()) return;
+const sendMessage = async () => {
+  if (!inputText.trim()) return;
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: inputText,
-      sender: "user",
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInputText("");
-    setIsTyping(true);
-
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "Bot: " + userMessage.text.split("").reverse().join(""),
-        sender: "bot",
-      };
-      setMessages((prev) => [...prev, botMessage]);
-    } catch {
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "Bot gặp lỗi!",
-        sender: "bot",
-      };
-      setMessages((prev) => [...prev, botMessage]);
-    } finally {
-      setIsTyping(false);
-    }
+  const userMessage: Message = {
+    id: Date.now().toString(),
+    text: inputText,
+    sender: "user",
   };
 
+  setMessages((prev) => [...prev, userMessage]);
+  setInputText("");
+  setIsTyping(true);
+  console.log("📨 Sending message:", userMessage.text); // DEBUG
+
+  try {
+    const res = await fetch("http://10.0.2.2:3000/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: userMessage.text }),
+    });
+
+    console.log("✅ Response status:", res.status); // DEBUG
+    const data = await res.json();
+    console.log("📦 Response data:", data); // DEBUG
+
+    if (data.reply) {
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: data.reply,
+        sender: "bot",
+      };
+      setMessages((prev) => [...prev, botMessage]);
+    }
+  } catch (error) {
+    console.error("❌ Error:", error); // DEBUG
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        text: "❌ Không kết nối được AI",
+        sender: "bot",
+      },
+    ]);
+  } finally {
+    setIsTyping(false);
+  }
+};
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.sender === "user";
     return (

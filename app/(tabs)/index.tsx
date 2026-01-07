@@ -1,41 +1,43 @@
-import React, { useState, useRef, useEffect } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Image,
-  FlatList,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  useWindowDimensions,
-} from "react-native";
 import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useRef, useState } from "react";
+import {
+  FlatList,
+  Image,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View
+} from "react-native";
 
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ProductCard } from '../../components/ProductCard';
-import ProductDetail from '../../components/ProductDetail';
 import { CartDrawer } from "../../components/CartDrawer";
+import ProductDetail from '../../components/ProductDetail';
 import { ProductsPage } from "./ProductsPage";
 // import { OrdersPage } from "./OrdersPage";
-import { FavoritesPage } from "./FavoritesPage";
-import { ProfilePage } from "./ProfilePage";
-import { Checkout } from "../../components/Checkout";
-import { ImageSourcePropType } from "react-native";
-import { useAuth } from "../context/AuthContext";
 import ChatScreen from "../../components/ChatScreen";
+import { Checkout } from "../../components/Checkout";
 import SearchScreen from "../../components/SearchScreen";
 import { DEFAULT_ADDRESSES } from '../../data/addressData';
+import { useAuth } from "../context/AuthContext";
+import { FavoritesPage } from "./FavoritesPage";
+import { ProfilePage } from "./ProfilePage";
+
+
 export interface Product {
   id: number;
   name: string;
   price: number;
-  image: ImageSourcePropType;
-  category: string;
-  description: string;
+  image_url: string;
+  category_id: number; // ✅ PHẢI LÀ NUMBER
+  category_ref?: string | null;
+  description?: string;
+  stock?: number;
 }
+
+
 
 export interface CartItem extends Product {
   quantity: number;
@@ -49,54 +51,14 @@ export interface Order {
   status: "pending" | "processing" | "delivered" | "cancelled";
 }
 
-const products: Product[] = [
-  {
-    id: 1,
-    name: "Bó Hoa Hồng",
-    price: 450000,
-    image: require('../../assets/images/hoahong.jpg'),
-    category: "Hoa Hồng",
-    description: "Bó hoa hồng tươi đẹp cho mọi dịp",
-  },
-  {
-    id: 2,
-    name: "Hoa Tulip Trắng",
-    price: 320000,
-    image: require('../../assets/images/hoatulip.jpg'),
-    category: "Hoa Tulip",
-    description: "Hoa tulip trắng thanh lịch",
-  },
-  {
-    id: 3,
-    name: "Hoa Hướng Dương",
-    price: 380000,
-    image: require('../../assets/images/hoahuongduong.jpg'),
-    category: "Hoa Hướng Dương",
-    description: "Hoa hướng dương rực rỡ",
-  },
-  {
-    id: 4,
-    name: "Hoa Lavender",
-    price: 290000,
-    image: require('../../assets/images/hoalavender.jpg'),
-    category: "Hoa Lavender",
-    description: "Hoa lavender thơm dịu nhẹ",
-  },
-];
 
-const categories = [
-  "Tất Cả",
-  "Hoa Hồng",
-  "Hoa Tulip",
-  "Hoa Hướng Dương",
-  "Hoa Lavender",
-];
 
 export default function HomeScreen() {
   // ===== ALL HOOKS AT THE TOP =====
   const { logout, user } = useAuth();
   const windowWidth = useWindowDimensions().width;
-  const [selectedCategory, setSelectedCategory] = useState("Tất Cả");
+const [selectedCategory, setSelectedCategory] =
+  useState<number | string | "ALL">("ALL");
   const [showSearch, setShowSearch] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -106,6 +68,11 @@ export default function HomeScreen() {
   const [favorites, setFavorites] = useState<number[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [checkoutItems, setCheckoutItems] = useState<CartItem[] | null>(null);
+  const [checkoutSelectedDiscount, setCheckoutSelectedDiscount] = useState<number>(0);
+  const [checkoutFreeShipping, setCheckoutFreeShipping] = useState<boolean>(false);
+  const [checkoutDeliveryFee, setCheckoutDeliveryFee] = useState<number>(16500);
+  const [checkoutFinalTotal, setCheckoutFinalTotal] = useState<number | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [bannerIndex, setBannerIndex] = useState(0);
   const bannerRef = useRef<FlatList>(null);
@@ -113,7 +80,11 @@ export default function HomeScreen() {
   const [openProfileNotifications, setOpenProfileNotifications] = useState(false);
   const [profileIncomingNotification, setProfileIncomingNotification] = useState<null | any>(null);
   const navigation = useNavigation();
+//goi api 
+const [products, setProducts] = useState<Product[]>([]);
+const [loading, setLoading] = useState(true);
 
+//---------------------------------------------------
   // Address and Payment Methods state
   const [addresses, setAddresses] = useState(DEFAULT_ADDRESSES);
 
@@ -134,21 +105,59 @@ export default function HomeScreen() {
   // ===== ALL LOGIC AFTER HOOKS =====
 
   const filteredProducts = products.filter((p) => {
-    const matchCategory =
-      selectedCategory === "Tất Cả" || p.category === selectedCategory;
+const matchCategory =
+  selectedCategory === "ALL" || (typeof selectedCategory === 'number' ? p.category_id === selectedCategory : p.category_ref === selectedCategory);
     const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchCategory && matchSearch;
   });
+interface Category {
+  id: number; // numeric id if present
+  docId?: string; // Firestore document id string
+  name: string;
+}
+useEffect(() => {
+  fetchCategories();
+}, []);
 
-  const addToCart = (product: Product) => {
+const fetchCategories = async () => {
+  try {
+    const res = await fetch(
+      "https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/categories?key=AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4"
+    );
+
+    const json = await res.json();
+
+    const list: Category[] = json.documents.map((doc: any) => ({
+      // Firestore may store numbers as integerValue or stringValue depending on how they were written.
+      id: doc.fields.id?.integerValue
+        ? Number(doc.fields.id.integerValue)
+        : doc.fields.id?.stringValue
+        ? Number(doc.fields.id.stringValue)
+        : NaN,
+      // extract Firestore document id from doc.name: .../documents/categories/<docId>
+      docId: doc.name ? String(doc.name).split('/').pop() : undefined,
+      name: doc.fields.name?.stringValue || doc.fields.name || "",
+    }));
+
+    console.log('Fetched raw categories JSON:', json);
+    console.log('Parsed categories list:', list);
+    setCategories(list);
+  } catch (e) {
+    console.log("Fetch categories error:", e);
+  }
+};
+
+const [categories, setCategories] = useState<Category[]>([]);
+
+  const addToCart = (product: Product, quantity: number = 1) => {
     setCartItems((prev) => {
       const exist = prev.find((item) => item.id === product.id);
       if (exist) {
         return prev.map((i) =>
-          i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+          i.id === product.id ? { ...i, quantity: i.quantity + quantity } : i
         );
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return [...prev, { ...product, quantity }];
     });
   };
 
@@ -171,17 +180,29 @@ export default function HomeScreen() {
   };
 
   const handleCheckout = (info: any) => {
+    const orderItems: CartItem[] = info?.items && info.items.length ? info.items : [...cartItems];
+    const orderTotal: number =
+      typeof info?.finalTotal === 'number'
+        ? info.finalTotal
+        : orderItems.reduce((s, i) => s + i.price * i.quantity, 0) + 50000;
+
     const newOrder: Order = {
       id: `ORD${Date.now()}`,
       date: new Date().toISOString(),
-      items: [...cartItems],
-      total: totalPrice + 50000,
+      items: orderItems,
+      total: orderTotal,
       status: "pending",
     };
     setOrders((prev) => [newOrder, ...prev]);
     setCartItems([]);
     setIsCheckoutOpen(false);
     setIsCartOpen(false);
+    // clear checkout temporary states
+    setCheckoutItems(null);
+    setCheckoutSelectedDiscount(0);
+    setCheckoutFreeShipping(false);
+    setCheckoutDeliveryFee(16500);
+    setCheckoutFinalTotal(null);
     setActiveTab("orders");
     // create a notification for the new order and send to ProfilePage
     const notif = {
@@ -209,8 +230,50 @@ useEffect(() => {
   const totalPrice = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
 
   const favoriteProducts = products.filter((p) => favorites.includes(p.id));
+//goi api ------------
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch(
+        "https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/products?key=AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4"
+      );
+      const json = await res.json();
+
+      const list: Product[] = json.documents.map((doc: any) => {
+        const f = doc.fields;
+        return {
+          id: Number(f.id?.integerValue || f.id?.stringValue || 0),
+          name: f.name?.stringValue || "",
+          price: Number(f.price?.integerValue || f.price?.stringValue || 0),
+          image_url: (f.image_url?.stringValue || f['image_url ']?.stringValue || "") as string,
+          // Keep numeric category_id if present, and also keep category_ref (string) when stored as docId
+          category_id: f.category_id?.integerValue
+            ? Number(f.category_id.integerValue)
+            : f.category_id?.stringValue && !isNaN(Number(f.category_id.stringValue))
+            ? Number(f.category_id.stringValue)
+            : NaN,
+          category_ref: f.category_id?.stringValue || null,
+          description: (f.description?.stringValue || f['description ']?.stringValue) as string,
+          stock: f.stock?.stringValue,
+        } as any;
+      });
+
+      setProducts(list);
+    } catch (e) {
+      console.log("Fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+//----------------------------------------------------
   return (
+    
     <View style={{ flex: 1, backgroundColor: "#f8f8f8" }}>
       {/* ================= PRODUCT DETAIL MODAL ================= */}
       <Modal
@@ -225,6 +288,13 @@ useEffect(() => {
             onAddToCart={addToCart}
             isWishlisted={favorites.includes(selectedProduct.id)}
             onToggleWishlist={() => toggleFavorite(selectedProduct.id)}
+            allProducts={products}
+            onViewProduct={(p) => setSelectedProduct(p)}
+            onBuyNow={(product, quantity) => {
+              addToCart(product, quantity);
+              setSelectedProduct(null);
+              setIsCheckoutOpen(true);
+            }}
           />
         )}
       </Modal>
@@ -358,39 +428,60 @@ useEffect(() => {
           </View>
 
           {/* CATEGORY BUTTONS */}
-          <View style={styles.categoryContainer}>
-            {["Tất Cả", "Hoa Hồng", "Hoa Tulip", "Hoa Hướng Dương", "Hoa Lavender"].map((cat, idx) => {
-              const icons = ['list', 'gift', 'calendar', 'heart', 'star'];
-              const labels = ['Tất Cả', 'Birthday', 'Event', 'Wedding', 'For You'];
-              return (
-                <TouchableOpacity
-                  key={cat}
-                  onPress={() => setSelectedCategory(cat)}
-                  style={[
-                    styles.categoryButton,
-                    selectedCategory === cat && styles.categoryButtonActive
-                  ]}
-                >
-                  <Ionicons 
-                    name={icons[idx] as any} 
-                    size={24} 
-                    color={selectedCategory === cat ? "#fff" : "#e91e63"} 
-                  />
-                  <Text
-                    style={{
-                      color: selectedCategory === cat ? "#fff" : "#333",
-                      fontSize: 11,
-                      marginTop: 4,
-                      textAlign: 'center',
-                      fontWeight: '500',
-                    }}
-                  >
-                    {labels[idx]}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+<View style={styles.categoryContainer}>
+  {/* TẤT CẢ */}
+  <TouchableOpacity
+    onPress={() => setSelectedCategory("ALL")}
+    style={[
+      styles.categoryButton,
+      selectedCategory === "ALL" && styles.categoryButtonActive
+    ]}
+  >
+    <Ionicons
+      name="list"
+      size={24}
+      color={selectedCategory === "ALL" ? "#fff" : "#e91e63"}
+    />
+    <Text style={{
+      fontSize: 11,
+      marginTop: 4,
+      color: selectedCategory === "ALL" ? "#fff" : "#333"
+    }}>
+      Tất Cả
+    </Text>
+  </TouchableOpacity>
+
+  {/* CATEGORY TỪ API */}
+  {categories.map((cat) => (
+    <TouchableOpacity
+      key={cat.docId || String(cat.id)}
+      onPress={() => setSelectedCategory(cat.docId ?? cat.id)}
+      style={[
+        styles.categoryButton,
+        selectedCategory === (cat.docId ?? cat.id) && styles.categoryButtonActive
+      ]}
+    >
+      <Ionicons
+        name={
+          cat.name === "Hoa sinh nhật" ? "gift" :
+          cat.name === "Hoa tình yêu" ? "calendar" :
+          cat.name === "Hoa cưới" ? "heart" :
+          cat.name === "Hoa chúc mừng" ? "star" :
+          "pricetag"
+        }
+        size={24}
+        color={selectedCategory === (cat.docId ?? cat.id) ? "#fff" : "#e91e63"}
+      />
+      <Text style={{
+        fontSize: 11,
+        marginTop: 4,
+        color: selectedCategory === (cat.docId ?? cat.id) ? "#fff" : "#333"
+      }}>
+        {cat.name || `ID:${cat.id}`}
+      </Text>
+    </TouchableOpacity>
+  ))}
+</View>
 
           {/* PRODUCTS GRID */}
           <FlatList
@@ -403,18 +494,20 @@ useEffect(() => {
                   activeOpacity={0.7}
                   onPress={() => setSelectedProduct(item)}
                 >
-                  <Image 
-                    source={item.image} 
-                    style={styles.productImage} 
-                    resizeMode="cover"
-                  />
+                  <Image
+  source={{ uri: item.image_url }}
+  style={styles.productImage}
+  resizeMode="cover"
+/>
+
                 </TouchableOpacity>
                 <View style={styles.productInfo}>
                   <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
                   <View style={styles.productFooter}>
-                    <Text style={styles.productPrice}>
-                      ₫ {item.price.toLocaleString()}
-                    </Text>
+                   <Text style={styles.productPrice}>
+  ₫ {Number(item.price || 0).toLocaleString()}
+</Text>
+
                     <TouchableOpacity
                       onPress={() => toggleFavorite(item.id)}
                       style={styles.heartButton}
@@ -446,6 +539,7 @@ useEffect(() => {
 {activeTab === "categories" && (
   <ProductsPage
     products={products}
+    categories={categories}
     onAddToCart={addToCart}
     favorites={favorites}
     onToggleFavorite={toggleFavorite}
@@ -493,7 +587,13 @@ useEffect(() => {
         totalPrice={totalPrice}
         onUpdateQuantity={updateQuantity}
         onRemoveItem={(id) => updateQuantity(id, 0)}
-        onCheckout={() => {
+        onCheckout={(payload) => {
+          // payload: { items, discountAmount, freeShipping, deliveryFee, finalTotal }
+          setCheckoutItems(payload.items);
+          setCheckoutSelectedDiscount(payload.discountAmount || 0);
+          setCheckoutFreeShipping(!!payload.freeShipping);
+          setCheckoutDeliveryFee(payload.deliveryFee || 0);
+          setCheckoutFinalTotal(payload.finalTotal ?? null);
           setIsCartOpen(false);
           setIsCheckoutOpen(true);
         }}
@@ -513,14 +613,16 @@ useEffect(() => {
         presentationStyle="fullScreen"
       >
         <Checkout
-          items={cartItems.map(item => ({ ...item, id: String(item.id) }))}
+          items={(checkoutItems ?? cartItems).map(item => ({ ...item, id: String(item.id) }))}
           addresses={addresses}
           paymentMethods={paymentMethods}
+          selectedDiscount={checkoutSelectedDiscount}
+          freeShipping={checkoutFreeShipping}
           onBack={() => {
             setIsCheckoutOpen(false);
             setIsCartOpen(true);
           }}
-          onPlaceOrder={(address, payment, discount) => handleCheckout({ address, payment, discount })}
+          onPlaceOrder={(address, payment, discount) => handleCheckout({ address, payment, discount, finalTotal: checkoutFinalTotal })}
         />
       </Modal>
 
@@ -689,6 +791,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+    marginTop: 8,
+    elevation: 4,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   categoryButton: {
     alignItems: "center",

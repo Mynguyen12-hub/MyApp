@@ -1,8 +1,7 @@
-import React from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import React from "react";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import type { Product } from "../app/(tabs)/index";
-import { useRouter } from 'expo-router';
 
 interface ProductCardProps {
   product: Product;

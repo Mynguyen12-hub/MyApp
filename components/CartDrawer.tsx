@@ -1,8 +1,8 @@
-import React from "react";
-import { View, Text, TouchableOpacity, FlatList, Image, StyleSheet, Modal, ScrollView } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { PromotionsModal, type Promotion } from "./PromotionsModal";
+import React from "react";
+import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import type { CartItem } from "../app/(tabs)/index";
+import { PromotionsModal, type Promotion } from "./PromotionsModal";
 
 interface CartDrawerProps {
   visible: boolean;
@@ -11,7 +11,15 @@ interface CartDrawerProps {
   onUpdateQuantity: (id: number, qty: number) => void;
   onRemoveItem: (id: number) => void;
   totalPrice: number;
-  onCheckout: () => void; // thêm đây
+  onCheckout: (payload: {
+    items: CartItem[];
+    discountAmount: number;
+    freeShipping: boolean;
+    deliveryFee: number;
+    finalTotal: number;
+    percentPromo?: Promotion | null;
+    freeshipPromo?: Promotion | null;
+  }) => void; // thêm đây
 }
 
 export function CartDrawer({
@@ -168,7 +176,7 @@ export function CartDrawer({
                   </TouchableOpacity>
 
                   <Image
-                    source={item.image}
+                    source={{ uri: item.image_url }}
                     style={styles.itemImage}
                   />
                   <View style={styles.itemDetails}>
@@ -279,7 +287,19 @@ export function CartDrawer({
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.checkoutBtn, selectedCount === 0 && styles.checkoutBtnDisabled]}
-              onPress={() => selectedCount > 0 && onCheckout()}
+              onPress={() => {
+                if (selectedCount === 0) return;
+                const selectedItems = cartItems.filter((i) => selectedItemIds.has(i.id));
+                onCheckout({
+                  items: selectedItems,
+                  discountAmount,
+                  freeShipping: !!selectedFreeshipPromo,
+                  deliveryFee,
+                  finalTotal,
+                  percentPromo: selectedPercentPromo,
+                  freeshipPromo: selectedFreeshipPromo,
+                });
+              }}
               disabled={selectedCount === 0}
             >
               <Text style={styles.checkoutBtnText}>

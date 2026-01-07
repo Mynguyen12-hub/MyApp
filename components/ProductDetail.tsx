@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image, ScrollView, StyleSheet } from 'react-native';
 import { ArrowLeft, Heart, Minus, Plus, Star } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface ProductDetailProps {
   product: any;
@@ -8,6 +8,9 @@ interface ProductDetailProps {
   onAddToCart: (product: any, quantity: number) => void;
   onToggleWishlist: (id: number) => void;
   isWishlisted: boolean;
+  allProducts?: any[];
+  onViewProduct?: (product: any) => void;
+  onBuyNow?: (product: any, quantity: number) => void;
 }
 
 export default function ProductDetail({
@@ -15,10 +18,69 @@ export default function ProductDetail({
   onBack,
   onAddToCart,
   isWishlisted,
-  onToggleWishlist
+  onToggleWishlist,
+  allProducts = [],
+  onViewProduct,
+  onBuyNow,
 }: ProductDetailProps) {
   
   const [quantity, setQuantity] = useState(1);
+  const [current, setCurrent] = useState<any>(product);
+  const [related, setRelated] = useState<any[]>([]);
+
+  useEffect(() => {
+    setCurrent(product);
+  }, [product]);
+
+  useEffect(() => {
+    const buildRelated = async () => {
+      try {
+        const categoryKey = current?.category_ref ?? current?.category_id;
+
+        console.log('ProductDetail: buildRelated start', { current, categoryKey, allProductsCount: allProducts?.length });
+
+        if (allProducts && allProducts.length > 0) {
+          const list = allProducts.filter((p: any) => {
+            if (!categoryKey) return false;
+            if (typeof categoryKey === 'number') return p.category_id === categoryKey;
+            return (p.category_ref === categoryKey) || (String(p.category_id) === String(categoryKey));
+          }).filter((p:any) => p.id !== current.id);
+          console.log('ProductDetail: related from allProducts', { count: list.length, sample: list.slice(0,3) });
+          setRelated(list);
+          return;
+        }
+
+        const res = await fetch(
+          `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/products?key=AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4`
+        );
+        const json = await res.json();
+        const list = (json.documents || []).map((doc: any) => {
+          const f = doc.fields || {};
+          return {
+            id: Number(f.id?.integerValue || f.id?.stringValue || 0),
+            name: f.name?.stringValue || "",
+            price: Number(f.price?.integerValue || f.price?.stringValue || 0),
+            image_url: f.image_url?.stringValue || f['image_url ']?.stringValue || "",
+            category_id: f.category_id?.integerValue ? Number(f.category_id.integerValue) : (f.category_id?.stringValue || null),
+            category_ref: f.category_id?.stringValue || null,
+            docId: doc.name ? String(doc.name).split('/').pop() : undefined,
+          };
+        }).filter((p:any) => {
+          if (!categoryKey) return false;
+          if (typeof categoryKey === 'number') return p.category_id === categoryKey;
+          return (p.category_ref === categoryKey) || (String(p.category_id) === String(categoryKey));
+        }).filter((p:any) => p.id !== current.id);
+
+        console.log('ProductDetail: related from fetch', { count: list.length, sample: list.slice(0,3) });
+        setRelated(list);
+      } catch (e) {
+        console.error('Error building related products', e);
+        setRelated([]);
+      }
+    };
+
+    buildRelated();
+  }, [current, allProducts]);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
@@ -40,7 +102,7 @@ export default function ProductDetail({
 
       <ScrollView>
         {/* Image */}
-        <Image source={product.image} style={styles.image} resizeMode="cover" />
+        <Image source={{ uri: current?.image_url || current?.image }} style={styles.image} resizeMode="cover" />
 
         {/* Info */}
         <View style={{ padding: 16 }}>
@@ -54,7 +116,7 @@ export default function ProductDetail({
           <Text style={styles.price}>{product.price.toLocaleString()}₫</Text>
 
           <Text style={styles.desc}>
-            Hoa tươi mới, được tuyển chọn kỹ càng. Phù hợp cho mọi dịp đặc biệt.
+            {current?.description || current?.desc || 'Hoa tươi mới, được tuyển chọn kỹ càng. Phù hợp cho mọi dịp đặc biệt.'}
           </Text>
 
           {/* Quantity */}
@@ -73,15 +135,47 @@ export default function ProductDetail({
         </View>
       </ScrollView>
 
-      {/* Add to Cart */}
+      {/* Related products */}
+      {related.length > 0 && (
+        <View style={{ padding: 12, backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Sản phẩm liên quan</Text>
+          <FlatList
+            data={related}
+            horizontal
+            keyExtractor={(item) => (item.docId ?? item.id).toString()}
+            renderItem={({ item }) => (
+              <TouchableOpacity onPress={() => onViewProduct ? onViewProduct(item) : setCurrent(item)} style={{ width: 140, marginRight: 12 }}>
+                <Image source={{ uri: item.image_url }} style={{ width: 140, height: 100, borderRadius: 8 }} />
+                <Text numberOfLines={2} style={{ marginTop: 6 }}>{item.name}</Text>
+                <Text style={{ color: '#e11d48', fontWeight: '700' }}>₫ {(item.price ?? 0).toLocaleString()}</Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      )}
+
+      {/* Add to Cart + Buy Now */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.cartBtn}
-          onPress={() => onAddToCart(product, quantity)}
-        >
-          <Text style={styles.cartText}>
-            Thêm vào giỏ – {(product.price * quantity).toLocaleString()}₫
-          </Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <TouchableOpacity style={[styles.cartBtn, { flex: 1 }]}
+            onPress={() => {
+              onAddToCart(current, quantity);
+              onBack();
+            }}
+          >
+            <Text style={styles.cartText}>
+              Thêm vào giỏ
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.buyNowBtn, { flex: 1 }]}
+            onPress={() => onBuyNow ? onBuyNow(current, quantity) : null}
+          >
+            <Text style={styles.buyNowText}>
+              Mua ngay
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -103,4 +197,6 @@ const styles = StyleSheet.create({
   bottomBar: { padding: 16, borderTopWidth: 1, borderColor: '#eee' },
   cartBtn: { backgroundColor: '#e11d48', padding: 16, borderRadius: 14, alignItems: 'center' },
   cartText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  buyNowBtn: { backgroundColor: '#fff', padding: 16, borderRadius: 14, alignItems: 'center', borderWidth: 2, borderColor: '#e11d48' },
+  buyNowText: { color: '#e11d48', fontSize: 16, fontWeight: '600' },
 });

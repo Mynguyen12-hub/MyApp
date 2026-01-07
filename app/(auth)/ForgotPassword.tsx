@@ -4,7 +4,8 @@ import { ArrowLeft } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { Toast } from '../../components/Toast';
 
-const BACKEND_URL = 'http://localhost:3000';
+// Use your machine IP instead of localhost for emulator/device communication
+const BACKEND_URL = 'http://172.29.16.1:3000';
 const FIREBASE_API_KEY = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
 
 export default function ForgotPasswordScreen() {

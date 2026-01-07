@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { Flower2, Eye, EyeOff, ArrowLeft } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
-
-const BACKEND_URL = 'http://localhost:3000';
+import { ArrowLeft, Eye, EyeOff, Flower2 } from 'lucide-react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function RegisterScreen() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -20,6 +19,10 @@ export default function RegisterScreen() {
     setErrorMessage("");
 
     // Validate input
+    if (!username.trim()) {
+      setErrorMessage("Vui lòng nhập tên đăng nhập");
+      return;
+    }
     if (!name.trim()) {
       setErrorMessage("Vui lòng nhập họ tên");
       return;
@@ -44,31 +47,7 @@ export default function RegisterScreen() {
     setIsRegistering(true);
 
     try {
-      // Try backend first (if available)
-      try {
-        const backendRes = await fetch(`${BACKEND_URL}/api/createTestUser`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: email.trim(),
-            password: password,
-            displayName: name.trim(),
-          }),
-        });
-
-        const backendData = await backendRes.json();
-        if (backendData.success) {
-          Alert.alert('✓ Thành công', 'Tài khoản đã được tạo! Vui lòng đăng nhập.', [
-            { text: 'OK', onPress: () => router.replace('/(auth)/Login') }
-          ]);
-          return;
-        }
-      } catch (e) {
-        // Backend not available, fallback to Firebase REST
-        console.log("Backend not available, using Firebase REST API");
-      }
-
-      // Firebase REST API fallback
+      // Firebase REST API
       const response = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4`,
         {
@@ -84,6 +63,7 @@ export default function RegisterScreen() {
       );
 
       const result = await response.json();
+      console.log('[Firebase SignUp Response]:', result);
 
       if (result.idToken) {
         Alert.alert('✓ Thành công', 'Tài khoản đã được tạo! Vui lòng đăng nhập.', [
@@ -91,10 +71,11 @@ export default function RegisterScreen() {
         ]);
       } else {
         const err = result.error?.message || 'Đăng ký thất bại';
+        console.error('[Firebase SignUp Error]:', err, result.error);
         if (err.includes('EMAIL_EXISTS')) {
           setErrorMessage('Email này đã được đăng ký');
         } else {
-          setErrorMessage(err);
+          setErrorMessage(err || 'Đăng ký thất bại, vui lòng thử lại');
         }
       }
     } catch (error) {
@@ -131,6 +112,17 @@ export default function RegisterScreen() {
             placeholder="Nguyễn Văn A"
             value={name}
             onChangeText={setName}
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Tên đăng nhập</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="username123"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
           />
         </View>
 
