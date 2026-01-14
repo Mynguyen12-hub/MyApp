@@ -15,8 +15,15 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 
 interface Message {
   id: string;
-  text: string;
+  text?: string;
   sender: "user" | "bot";
+  products?: Product[];
+}
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
 }
 
 export default function ChatScreen() {

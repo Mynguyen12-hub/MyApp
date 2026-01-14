@@ -4,6 +4,7 @@ import {
   FlatList,
   Image,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -31,10 +32,13 @@ export interface Product {
   name: string;
   price: number;
   image_url: string;
-  category_id: number; // ✅ PHẢI LÀ NUMBER
+  category_id: number;
   category_ref?: string | null;
   description?: string;
   stock?: number;
+  discountPrice: number;
+  promotion: boolean;
+  created_at?: string;
 }
 
 
@@ -92,6 +96,14 @@ const [loading, setLoading] = useState(true);
     { id: 'cod', type: 'cod' as const, label: 'Thanh toán khi nhận hàng', isDefault: true },
     { id: 'momo', type: 'momo' as const, label: 'Ví MoMo' },
     { id: 'bank', type: 'bank' as const, label: 'Chuyển khoản ngân hàng' },
+  ]);
+
+  // Saved vouchers state
+  const [savedVouchers, setSavedVouchers] = useState<{ id: string; code: string; discount: string; condition: string; minPrice?: number; maxDiscount?: number }[]>([]);
+  const [allVouchers, setAllVouchers] = useState<{ id: string; code: string; discount: string; condition: string; minPrice?: number; maxDiscount?: number }[]>([
+    { id: 'v1', code: 'SAVE50', discount: '50K', condition: 'Đơn từ 500K', minPrice: 500000, maxDiscount: 50000 },
+    { id: 'v2', code: 'LOVE30', discount: '30%', condition: 'Tất cả sản phẩm', minPrice: 0, maxDiscount: undefined },
+    { id: 'v3', code: 'FLASH20', discount: '20K', condition: 'Đơn từ 300K', minPrice: 300000, maxDiscount: 20000 },
   ]);
 
   // Banner images (3-4 ảnh)
@@ -233,7 +245,57 @@ useEffect(() => {
 //goi api ------------
   useEffect(() => {
     fetchProducts();
+    fetchVouchers();
   }, []);
+
+  const fetchVouchers = async () => {
+    try {
+      const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
+      const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/vouchers?key=${key}`;
+      const res = await fetch(url);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      
+      const json = await res.json();
+      console.log('Vouchers response:', json);
+      const docs = json.documents || [];
+
+      if (docs.length > 0) {
+        const voucherList = docs.map((doc: any, idx: number) => {
+          const f = doc.fields || {};
+          const minPriceVal = f.minPrice?.integerValue ? parseInt(f.minPrice.integerValue) : undefined;
+          const maxDiscountVal = f.maxDiscount?.integerValue ? parseInt(f.maxDiscount.integerValue) : undefined;
+          return {
+            id: doc.name?.split('/').pop() || `v${idx + 1}`,
+            code: f.code?.stringValue || f.title?.stringValue || '',
+            discount: f.discount?.stringValue || f.amount?.stringValue || '',
+            condition: f.description?.stringValue || f.desc?.stringValue || '',
+            minPrice: minPriceVal,
+            maxDiscount: maxDiscountVal,
+          };
+        });
+        console.log('Vouchers loaded from Firebase:', voucherList);
+        setAllVouchers(voucherList);
+      } else {
+        console.log('No vouchers found, using fallback');
+        setAllVouchers([
+          { id: 'v1', code: 'SAVE50', discount: '50K', condition: 'Đơn từ 500K', minPrice: 500000, maxDiscount: 50000 },
+          { id: 'v2', code: 'LOVE30', discount: '30%', condition: 'Tất cả sản phẩm', minPrice: 0, maxDiscount: undefined },
+          { id: 'v3', code: 'FLASH20', discount: '20K', condition: 'Đơn từ 300K', minPrice: 300000, maxDiscount: 20000 },
+        ]);
+      }
+    } catch (e: any) {
+      console.warn('Vouchers fetch from Firestore failed', e?.message || e);
+      // Fallback to hardcoded vouchers if Firebase fails
+      setAllVouchers([
+        { id: 'v1', code: 'SAVE50', discount: '50K', condition: 'Đơn từ 500K', minPrice: 500000, maxDiscount: 50000 },
+        { id: 'v2', code: 'LOVE30', discount: '30%', condition: 'Tất cả sản phẩm', minPrice: 0, maxDiscount: undefined },
+        { id: 'v3', code: 'FLASH20', discount: '20K', condition: 'Đơn từ 300K', minPrice: 300000, maxDiscount: 20000 },
+      ]);
+    }
+  };
 
   const fetchProducts = async () => {
     try {
@@ -249,7 +311,6 @@ useEffect(() => {
           name: f.name?.stringValue || "",
           price: Number(f.price?.integerValue || f.price?.stringValue || 0),
           image_url: (f.image_url?.stringValue || f['image_url ']?.stringValue || "") as string,
-          // Keep numeric category_id if present, and also keep category_ref (string) when stored as docId
           category_id: f.category_id?.integerValue
             ? Number(f.category_id.integerValue)
             : f.category_id?.stringValue && !isNaN(Number(f.category_id.stringValue))
@@ -258,6 +319,9 @@ useEffect(() => {
           category_ref: f.category_id?.stringValue || null,
           description: (f.description?.stringValue || f['description ']?.stringValue) as string,
           stock: f.stock?.stringValue,
+          discountPrice: Number(f.discountPrice?.integerValue || f.discountPrice?.stringValue || 0),
+          promotion: f.promotion?.booleanValue || false,
+          created_at: f.created_at?.stringValue || new Date().toISOString(),
         } as any;
       });
 
@@ -295,6 +359,7 @@ useEffect(() => {
               setSelectedProduct(null);
               setIsCheckoutOpen(true);
             }}
+            canReview={!!orders.find(o => o.status === 'delivered' && o.items.some(it => it.id === selectedProduct.id))}
           />
         )}
       </Modal>
@@ -304,7 +369,7 @@ useEffect(() => {
           {/* ================= HOME TAB ================= */}
           {activeTab === "home" && (
             
-        <View style={{ flex: 1 }}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           {/* HEADER WITH BANNER */}
           <View style={styles.headerBanner}>
             {/* Header Top (kept minimal) */}
@@ -427,112 +492,247 @@ useEffect(() => {
             </View>
           </View>
 
-          {/* CATEGORY BUTTONS */}
-<View style={styles.categoryContainer}>
-  {/* TẤT CẢ */}
-  <TouchableOpacity
-    onPress={() => setSelectedCategory("ALL")}
-    style={[
-      styles.categoryButton,
-      selectedCategory === "ALL" && styles.categoryButtonActive
-    ]}
-  >
-    <Ionicons
-      name="list"
-      size={24}
-      color={selectedCategory === "ALL" ? "#fff" : "#e91e63"}
-    />
-    <Text style={{
-      fontSize: 11,
-      marginTop: 4,
-      color: selectedCategory === "ALL" ? "#fff" : "#333"
-    }}>
-      Tất Cả
-    </Text>
-  </TouchableOpacity>
-
-  {/* CATEGORY TỪ API */}
-  {categories.map((cat) => (
-    <TouchableOpacity
-      key={cat.docId || String(cat.id)}
-      onPress={() => setSelectedCategory(cat.docId ?? cat.id)}
-      style={[
-        styles.categoryButton,
-        selectedCategory === (cat.docId ?? cat.id) && styles.categoryButtonActive
-      ]}
-    >
-      <Ionicons
-        name={
-          cat.name === "Hoa sinh nhật" ? "gift" :
-          cat.name === "Hoa tình yêu" ? "calendar" :
-          cat.name === "Hoa cưới" ? "heart" :
-          cat.name === "Hoa chúc mừng" ? "star" :
-          "pricetag"
-        }
-        size={24}
-        color={selectedCategory === (cat.docId ?? cat.id) ? "#fff" : "#e91e63"}
-      />
-      <Text style={{
-        fontSize: 11,
-        marginTop: 4,
-        color: selectedCategory === (cat.docId ?? cat.id) ? "#fff" : "#333"
-      }}>
-        {cat.name || `ID:${cat.id}`}
-      </Text>
-    </TouchableOpacity>
-  ))}
-</View>
-
-          {/* PRODUCTS GRID */}
-          <FlatList
-            data={filteredProducts}
-            numColumns={2}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => (
-              <View style={styles.productWrapper}>
-                <TouchableOpacity 
-                  activeOpacity={0.7}
-                  onPress={() => setSelectedProduct(item)}
-                >
-                  <Image
-  source={{ uri: item.image_url }}
-  style={styles.productImage}
-  resizeMode="cover"
-/>
-
-                </TouchableOpacity>
-                <View style={styles.productInfo}>
-                  <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
-                  <View style={styles.productFooter}>
-                   <Text style={styles.productPrice}>
-  ₫ {Number(item.price || 0).toLocaleString()}
-</Text>
-
-                    <TouchableOpacity
-                      onPress={() => toggleFavorite(item.id)}
-                      style={styles.heartButton}
-                    >
-                      <Ionicons
-                        name={favorites.includes(item.id) ? "heart" : "heart-outline"}
-                        size={16}
-                        color={favorites.includes(item.id) ? "#e91e63" : "#ccc"}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => addToCart(item)}
-                    style={styles.addToCartButton}
+          {/* ===== VOUCHER SECTION ===== */}
+          <View style={{ paddingHorizontal: 12, marginTop: 20, marginBottom: 12 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#000', marginBottom: 12 }}>🎫 Mã Giảm Giá</Text>
+            <FlatList
+              data={allVouchers}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.id}
+              scrollEventThrottle={16}
+              renderItem={({ item }) => {
+                const isSaved = savedVouchers.some(v => v.id === item.id);
+                return (
+                  <TouchableOpacity 
+                    style={{ 
+                      backgroundColor: isSaved ? '#f5e4e8' : '#ffe4ed', 
+                      borderRadius: 12, 
+                      padding: 12, 
+                      marginRight: 12, 
+                      borderLeftWidth: 4, 
+                      borderLeftColor: '#e91e63',
+                      minWidth: 160,
+                      opacity: isSaved ? 0.6 : 1,
+                    }}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (isSaved) {
+                        setSavedVouchers(prev => prev.filter(v => v.id !== item.id));
+                      } else {
+                        setSavedVouchers(prev => [...prev, item]);
+                      }
+                    }}
                   >
-                    <Ionicons name="cart" size={16} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.addToCartText}>Thêm</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#e91e63', marginBottom: 4 }}>{item.code}</Text>
+                        <Text style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>Giảm: <Text style={{ fontWeight: 'bold' }}>{item.discount}</Text></Text>
+                        <Text style={{ fontSize: 11, color: '#666' }}>{item.condition}</Text>
+                      </View>
+                      <Ionicons name={isSaved ? 'heart' : 'heart-outline'} size={20} color="#e91e63" />
+                    </View>
                   </TouchableOpacity>
-                </View>
-              </View>
-            )}
-            contentContainerStyle={{ padding: 12 }}
-            columnWrapperStyle={{ justifyContent: 'space-between' }}
-          />
-        </View>
+                );
+              }}
+            />
+          </View>
+
+          {/* ===== HOT PRODUCTS - HORIZONTAL SCROLL ===== */}
+          <View style={{ marginTop: 20, marginBottom: 20 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#000', marginBottom: 12, paddingHorizontal: 12 }}>🔥 Sản Phẩm Bán Chạy</Text>
+            <FlatList
+              data={products.slice(0, 8)}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => `hot-${item.id}`}
+              scrollEventThrottle={16}
+              contentContainerStyle={{ paddingHorizontal: 12 }}
+              renderItem={({ item }) => {
+                const discountPercent = item.discountPrice > 0 && item.discountPrice < item.price && item.price > 0 ? Math.round(((item.price - item.discountPrice) / item.price) * 100) : 0;
+                return (
+                  <View style={{ marginRight: 12, backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', elevation: 2, width: 140 }}>
+                    <TouchableOpacity 
+                      activeOpacity={0.7}
+                      onPress={() => setSelectedProduct(item)}
+                      style={{ position: 'relative' }}
+                    >
+                      <Image
+                        source={{ uri: item.image_url }}
+                        style={{ width: 140, height: 140, backgroundColor: '#f5f5f5' }}
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity 
+                        onPress={() => toggleFavorite(item.id)}
+                        style={{ position: 'absolute', top: 8, left: 8, backgroundColor: '#fff', padding: 4, borderRadius: 16 }}
+                      >
+                        <Ionicons
+                          name={favorites.includes(item.id) ? "heart" : "heart-outline"}
+                          size={18}
+                          color={favorites.includes(item.id) ? "#e91e63" : "#ccc"}
+                        />
+                      </TouchableOpacity>
+                      {discountPercent > 0 && (
+                        <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#e91e63', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 }}>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 11 }}>-{discountPercent}%</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    <View style={{ padding: 8 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#333', marginBottom: 4 }} numberOfLines={2}>{item.name}</Text>
+                      <View style={{ marginBottom: 6 }}>
+                        {item.discountPrice > 0 && item.discountPrice < item.price ? (
+                          <>
+                            <Text style={{ fontSize: 10, color: '#999', textDecorationLine: 'line-through' }}>₫ {Number(item.price || 0).toLocaleString()}</Text>
+                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#e91e63' }}>₫ {Number(item.discountPrice || 0).toLocaleString()}</Text>
+                          </>
+                        ) : (
+                          <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#e91e63' }}>₫ {Number(item.price || 0).toLocaleString()}</Text>
+                        )}
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => addToCart(item)}
+                        style={{ backgroundColor: '#e91e63', borderRadius: 6, padding: 6, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>Thêm vào giỏ</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          </View>
+
+          {/* PROMOTION PRODUCTS - HORIZONTAL SCROLL */}
+          <View style={{ marginTop: 20, marginBottom: 20 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#000', marginBottom: 12, paddingHorizontal: 12 }}>🎉 Sản Phẩm Khuyến Mãi</Text>
+            <FlatList
+              data={products.filter(p => p.promotion).slice(0, 8)}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => `promo-${item.id}`}
+              scrollEventThrottle={16}
+              contentContainerStyle={{ paddingHorizontal: 12 }}
+              renderItem={({ item }) => {
+                const discountPercent = item.discountPrice > 0 && item.discountPrice < item.price && item.price > 0 ? Math.round(((item.price - item.discountPrice) / item.price) * 100) : 0;
+                return (
+                  <View style={{ marginRight: 12, backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', elevation: 2, width: 140 }}>
+                    <TouchableOpacity 
+                      activeOpacity={0.7}
+                      onPress={() => setSelectedProduct(item)}
+                      style={{ position: 'relative' }}
+                    >
+                      <Image
+                        source={{ uri: item.image_url }}
+                        style={{ width: 140, height: 140, backgroundColor: '#f5f5f5' }}
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity 
+                        onPress={() => toggleFavorite(item.id)}
+                        style={{ position: 'absolute', top: 8, left: 8, backgroundColor: '#fff', padding: 4, borderRadius: 16 }}
+                      >
+                        <Ionicons
+                          name={favorites.includes(item.id) ? "heart" : "heart-outline"}
+                          size={18}
+                          color={favorites.includes(item.id) ? "#e91e63" : "#ccc"}
+                        />
+                      </TouchableOpacity>
+                      {discountPercent > 0 && (
+                        <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#e91e63', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 }}>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 11 }}>-{discountPercent}%</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    <View style={{ padding: 8 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#333', marginBottom: 4 }} numberOfLines={2}>{item.name}</Text>
+                      <View style={{ marginBottom: 6 }}>
+                        {item.discountPrice > 0 && item.discountPrice < item.price ? (
+                          <>
+                            <Text style={{ fontSize: 10, color: '#999', textDecorationLine: 'line-through' }}>₫ {Number(item.price || 0).toLocaleString()}</Text>
+                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#e91e63' }}>₫ {Number(item.discountPrice || 0).toLocaleString()}</Text>
+                          </>
+                        ) : (
+                          <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#e91e63' }}>₫ {Number(item.price || 0).toLocaleString()}</Text>
+                        )}
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => addToCart(item)}
+                        style={{ backgroundColor: '#e91e63', borderRadius: 6, padding: 6, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>Thêm vào giỏ</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          </View>
+
+          {/* NEW PRODUCTS - HORIZONTAL SCROLL sorted by created_at */}
+          <View style={{ marginTop: 20, marginBottom: 100 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#000', marginBottom: 12, paddingHorizontal: 12 }}>🆕 Sản Phẩm Mới</Text>
+            <FlatList
+              data={[...products].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()).slice(0, 8)}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => `new-${item.id}`}
+              scrollEventThrottle={16}
+              contentContainerStyle={{ paddingHorizontal: 12 }}
+              renderItem={({ item }) => {
+                const discountPercent = item.discountPrice > 0 && item.discountPrice < item.price && item.price > 0 ? Math.round(((item.price - item.discountPrice) / item.price) * 100) : 0;
+                return (
+                  <View style={{ marginRight: 12, backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden', elevation: 2, width: 140 }}>
+                    <TouchableOpacity 
+                      activeOpacity={0.7}
+                      onPress={() => setSelectedProduct(item)}
+                      style={{ position: 'relative' }}
+                    >
+                      <Image
+                        source={{ uri: item.image_url }}
+                        style={{ width: 140, height: 140, backgroundColor: '#f5f5f5' }}
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity 
+                        onPress={() => toggleFavorite(item.id)}
+                        style={{ position: 'absolute', top: 8, left: 8, backgroundColor: '#fff', padding: 4, borderRadius: 16 }}
+                      >
+                        <Ionicons
+                          name={favorites.includes(item.id) ? "heart" : "heart-outline"}
+                          size={18}
+                          color={favorites.includes(item.id) ? "#e91e63" : "#ccc"}
+                        />
+                      </TouchableOpacity>
+                      {discountPercent > 0 && (
+                        <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#e91e63', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 }}>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 11 }}>-{discountPercent}%</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    <View style={{ padding: 8 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#333', marginBottom: 4 }} numberOfLines={2}>{item.name}</Text>
+                      <View style={{ marginBottom: 6 }}>
+                        {item.discountPrice > 0 && item.discountPrice < item.price ? (
+                          <>
+                            <Text style={{ fontSize: 10, color: '#999', textDecorationLine: 'line-through' }}>₫ {Number(item.price || 0).toLocaleString()}</Text>
+                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#e91e63' }}>₫ {Number(item.discountPrice || 0).toLocaleString()}</Text>
+                          </>
+                        ) : (
+                          <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#e91e63' }}>₫ {Number(item.price || 0).toLocaleString()}</Text>
+                        )}
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => addToCart(item)}
+                        style={{ backgroundColor: '#e91e63', borderRadius: 6, padding: 6, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>Thêm vào giỏ</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          </View>
+        </ScrollView>
       )}
 
       {/* ========== OTHER PAGES ========== */}
@@ -555,6 +755,7 @@ useEffect(() => {
           onAddToCart={addToCart}
           onToggleFavorite={toggleFavorite}
           onPressImage={setSelectedProduct}
+          onPressCart={() => setIsCartOpen(true)}
         />
       )}
 
@@ -602,7 +803,12 @@ useEffect(() => {
       {/* Global Chat Modal (moved out of home view so it works from any tab) */}
       <Modal visible={isChatOpen} animationType="slide">
         <View style={{ flex: 1 }}>
-          <ChatScreen onBack={() => setIsChatOpen(false)} />
+          <View style={{ height: 60, backgroundColor: "#f8f8f8", justifyContent: "center", paddingLeft: 16, borderBottomWidth: 1, borderBottomColor: "#ddd" }}>
+            <TouchableOpacity onPress={() => setIsChatOpen(false)} style={{ marginTop: 10 }}>
+              <Ionicons name="arrow-back" size={24} color="#000" />
+            </TouchableOpacity>
+          </View>
+          <ChatScreen onAddToCart={addToCart} />
         </View>
       </Modal>
 

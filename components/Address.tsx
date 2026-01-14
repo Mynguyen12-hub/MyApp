@@ -1,18 +1,18 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
+  Alert,
   FlatList,
   Image,
   Modal,
-  TextInput,
+  ScrollView,
+  StyleSheet,
   Switch,
-  Alert,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Address, DEFAULT_ADDRESSES } from "../data/addressData";
 
 // Custom hook for address management - can be used anywhere

@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   StyleSheet,
-  Alert,
-  StatusBar,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { searchProducts } from "../utils/firebaseAPI";
 let ImagePicker: any;
 try {
   // require at runtime to avoid build-time type errors if package isn't installed
@@ -18,7 +20,6 @@ try {
 } catch (e) {
   ImagePicker = null;
 }
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface Props {
   navigation: { goBack: () => void };
@@ -26,15 +27,38 @@ interface Props {
   onPressProduct?: (product: any) => void;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  price: number | string;
+  image?: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+}
+
 export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, onPressProduct }: Props) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Product[]>([]);
   const [history, setHistory] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [useFirebase, setUseFirebase] = useState(false); // Toggle Firebase vs local search
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
   // Load history
   useEffect(() => {
     loadHistory();
   }, []);
+
+  // Log results for debugging
+  useEffect(() => {
+    if (results.length > 0) {
+      console.log(`📊 [SearchScreen] Results:`, results);
+      results.forEach(item => {
+        console.log(`  ✅ ${item.name}: ${item.image}`);
+      });
+    }
+  }, [results]);
 
   const loadHistory = async () => {
     const stored = await AsyncStorage.getItem("search_history");
@@ -49,19 +73,75 @@ export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, o
     await AsyncStorage.setItem("search_history", JSON.stringify(newHistory));
   };
 
-  // perform a search when user submits (not on every keystroke)
-  const performSearch = (text?: string) => {
-    const q = (typeof text === 'string' ? text : query).trim();
-    setQuery(q);
+  // Search products from Firebase via backend API
+  const searchFirebase = async (searchQuery: string) => {
+    if (!searchQuery.trim()) {
+      setResults([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log(`🔍 Searching Firebase for: ${searchQuery}`);
+
+      const data = await searchProducts({ query: searchQuery });
+
+      console.log(`✅ Firebase Search Response:`, data);
+
+      if (data.success) {
+        setResults(data.products || []);
+        saveHistory(searchQuery);
+        
+        if (data.products?.length === 0) {
+          Alert.alert("Thông báo", `Không tìm thấy sản phẩm "${searchQuery}"`);
+        }
+      } else {
+        Alert.alert("Lỗi", data.message || "Lỗi tìm kiếm từ Firebase");
+      }
+    } catch (error: any) {
+      console.error("❌ Firebase search error:", error);
+      Alert.alert(
+        "Lỗi kết nối",
+        "Không thể kết nối đến máy chủ. Vui lòng kiểm tra URL backend hoặc sử dụng tìm kiếm cục bộ.",
+        [
+          {
+            text: "Dùng tìm kiếm cục bộ",
+            onPress: () => {
+              setUseFirebase(false);
+              performLocalSearch(searchQuery);
+            }
+          },
+          { text: "OK", onPress: () => {} }
+        ]
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Local search (fallback)
+  const performLocalSearch = (searchText: string) => {
+    const q = searchText.trim();
     if (!q) return setResults([]);
 
-    // simple name-filter search
     const filtered = products.filter((p) =>
       p.name.toLowerCase().includes(q.toLowerCase())
     );
 
     setResults(filtered);
     saveHistory(q);
+  };
+
+  // perform a search when user submits
+  const performSearch = (text?: string) => {
+    const q = (typeof text === 'string' ? text : query).trim();
+    setQuery(q);
+
+    if (useFirebase) {
+      searchFirebase(q);
+    } else {
+      performLocalSearch(q);
+    }
   };
 
   const deleteHistoryItem = async (item: string) => {
@@ -125,6 +205,13 @@ export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, o
         </TouchableOpacity>
 
         <Text style={styles.title}>Tìm kiếm</Text>
+
+        {/* Firebase Toggle Button */}
+        <TouchableOpacity 
+          style={[styles.firebaseBtn, { backgroundColor: useFirebase ? '#e91e63' : '#ccc' }]}
+          onPress={() => setUseFirebase(!useFirebase)}
+        >
+        </TouchableOpacity>
       </View>
 
       {/* Search Input */}
@@ -136,14 +223,17 @@ export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, o
           onChangeText={(t) => setQuery(t)}
           onSubmitEditing={() => performSearch()}
           returnKeyType="search"
+          editable={!loading}
         />
 
-        <TouchableOpacity onPress={pickImage}>
-          <Ionicons name="image" size={26} color="#666" />
+        {loading && <ActivityIndicator size="small" color="#e91e63" style={{ marginRight: 10 }} />}
+
+        <TouchableOpacity onPress={pickImage} disabled={loading}>
+          <Ionicons name="image" size={26} color={loading ? "#ccc" : "#666"} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={openCamera} style={{ marginLeft: 10 }}>
-          <Ionicons name="camera" size={26} color="#666" />
+        <TouchableOpacity onPress={openCamera} style={{ marginLeft: 10 }} disabled={loading}>
+          <Ionicons name="camera" size={26} color={loading ? "#ccc" : "#666"} />
         </TouchableOpacity>
       </View>
 
@@ -167,26 +257,81 @@ export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, o
       )}
 
       {/* RESULTS */}
+      {results.length > 0 ? (
+        <View style={styles.resultsHeader}>
+          <Text style={styles.resultsTitle}>Kết quả tìm kiếm ({results.length})</Text>
+        </View>
+      ) : null}
+
       <FlatList
         data={results}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id?.toString()}
+        numColumns={2}
+        columnWrapperStyle={{ justifyContent: "space-between", paddingHorizontal: 0 }}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => onPressProduct?.(item)}
-            activeOpacity={0.7}
-            style={styles.resultItem}
+            activeOpacity={0.8}
+            style={styles.productCard}
           >
-            {typeof item.image === 'number' ? (
-              <Image source={item.image} style={styles.resultImg} />
-            ) : (
-              <Image source={{ uri: item.image }} style={styles.resultImg} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={styles.resultName}>{item.name}</Text>
-              <Text style={styles.resultPrice}>{item.price} đ</Text>
+            <View style={styles.productImageContainer}>
+              {item.image && !failedImages.has(item.id) ? (
+                typeof item.image === "number" ? (
+                  <Image 
+                    source={item.image} 
+                    style={styles.productImage}
+                    onLoad={() => console.log(`✅ Image loaded: ${item.name}`)}
+                    onError={(err) => {
+                      console.error(`❌ Image failed to load: ${item.name}`, err);
+                      setFailedImages(new Set([...failedImages, item.id]));
+                    }}
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: item.image }}
+                    style={styles.productImage}
+                    onLoad={() => console.log(`✅ Image loaded: ${item.name}`)}
+                    onError={(err) => {
+                      console.error(`❌ Image failed to load: ${item.name} (${item.image})`, err);
+                      setFailedImages(new Set([...failedImages, item.id]));
+                    }}
+                  />
+                )
+              ) : (
+                <View style={[styles.productImage, styles.placeholderImage]}>
+                  <Ionicons name="image-outline" size={50} color="#ddd" />
+                  <Text style={styles.placeholderText}>Không có ảnh</Text>
+                </View>
+              )}
+            </View>
+            
+            <View style={styles.productInfo}>
+              <Text style={styles.productName} numberOfLines={2}>
+                {item.name}
+              </Text>
+              <Text style={styles.productDescription} numberOfLines={1}>
+                {item.description || "Sản phẩm chất lượng"}
+              </Text>
+              <Text style={styles.productPrice}>
+                {typeof item.price === "number"
+                  ? item.price.toLocaleString("vi-VN")
+                  : item.price}
+                {" đ"}
+              </Text>
             </View>
           </TouchableOpacity>
         )}
+        ListEmptyComponent={
+          query ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="search-outline" size={64} color="#ccc" />
+              <Text style={styles.emptyText}>
+                Không tìm thấy sản phẩm "{query}"
+              </Text>
+            </View>
+          ) : null
+        }
+        contentContainerStyle={results.length === 0 ? { flex: 1 } : {}}
       />
     </View>
   );
@@ -210,42 +355,143 @@ const SAMPLE_PRODUCTS = [
 ];
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 50, backgroundColor: "#fff" ,},
-  header: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: "bold", marginLeft: 10 },
-searchRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  borderWidth: 1,
-  borderColor: "#ccc",
-  borderRadius: 8,
-  paddingHorizontal: 12,
-  paddingVertical:12,  // <-- đã lớn nhưng vẫn có thể tăng nữa
-  marginBottom: 12,
-  marginTop: 20, 
-  
-},
+  container: { flex: 1, padding: 16, paddingTop: 50, backgroundColor: "#fff" },
+  header: { flexDirection: "row", alignItems: "center", marginBottom: 12, justifyContent: "space-between" },
+  title: { fontSize: 20, fontWeight: "bold", flex: 1, marginLeft: 10 },
+  firebaseBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "#ccc",
+  },
+  firebaseBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 12,
+    marginTop: 20,
+  },
   input: { flex: 1, fontSize: 16 },
   historyBox: {
     backgroundColor: "#f9f9f9",
     padding: 10,
     borderRadius: 8,
     marginBottom: 10,
-    paddingVertical: 6
-
+    paddingVertical: 6,
   },
   historyTitle: { fontWeight: "bold", marginBottom: 8 },
-  historyItem: { flexDirection: "row", alignItems: "center", paddingVertical: 4, justifyContent: 'space-between' },
-  historyLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  historyText: { marginLeft: 8, fontSize: 16, flexShrink: 1 },
-  deleteBtn: { paddingLeft: 12 },
-  resultItem: {
-    flexDirection: "row",
-    padding: 10,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
+  historyItem: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    paddingVertical: 4, 
+    justifyContent: "space-between" 
   },
-  resultImg: { width: 60, height: 60, marginRight: 10, borderRadius: 8 },
-  resultName: { fontSize: 16, fontWeight: "bold" },
-  resultPrice: { color: "#e91e63", marginTop: 4 },
+  historyLeft: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    flex: 1 
+  },
+  historyText: { 
+    marginLeft: 8, 
+    fontSize: 16, 
+    flexShrink: 1 
+  },
+  deleteBtn: { paddingLeft: 12 },
+
+  // Results Styles
+  resultsHeader: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    marginBottom: 10,
+  },
+  resultsTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+  },
+
+  // Product Card Grid
+  productCard: {
+    flex: 1,
+    marginHorizontal: 6,
+    marginVertical: 8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  productImageContainer: {
+    width: "100%",
+    height: 160,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  productImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  placeholderImage: {
+    backgroundColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  placeholderText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#999",
+    fontWeight: "500",
+  },
+  productInfo: {
+    padding: 12,
+    backgroundColor: "#fff",
+  },
+  productName: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 4,
+    height: 36,
+  },
+  productDescription: {
+    fontSize: 12,
+    color: "#999",
+    marginBottom: 8,
+    fontStyle: "italic",
+  },
+  productPrice: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#e91e63",
+  },
+
+  // Empty State
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#999",
+    marginTop: 16,
+    textAlign: "center",
+  },
 });

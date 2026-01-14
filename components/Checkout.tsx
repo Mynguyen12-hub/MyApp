@@ -1,18 +1,19 @@
 // CheckoutScreen.tsx
+import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Image,
-  Modal,
+  View,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Address } from "../data/addressData";
-import { useAddresses, AddressManagement } from "./Address";
+import { AddressManagement, useAddresses } from "./Address";
 
 // --- DEFINE TYPES TRỰC TIẾP TRONG FILE ---
 interface CartItem {
@@ -70,6 +71,8 @@ export function Checkout({
   const [discountCode, setDiscountCode] = useState('');
   const [discountMessage, setDiscountMessage] = useState('');
   const [showAddressModal, setShowAddressModal] = useState(false);
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
 
   const shippingMethods = [
     { id: 'standard', name: 'Giao hàng tiêu chuẩn', price: 16500, time: '2-3 ngày' },
@@ -252,22 +255,67 @@ export function Checkout({
 
           {/* Items List */}
           <View style={styles.itemsCard}>
-            {items.map((item) => (
-              <View key={item.id} style={styles.cartItem}>
-                <Image
-                  source={item.image || { uri: 'https://via.placeholder.com/50' }}
-                  style={styles.itemImage}
-                />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.itemPrice}>₫ {item.price.toLocaleString()}</Text>
+            {items.map((item) => {
+              const itemId = item.id?.toString() || '';
+              const isImageFailed = failedImages.has(itemId);
+              const isImageLoading = loadingImages.has(itemId);
+              
+              return (
+                <View key={item.id} style={styles.cartItem}>
+                  {/* Product Image */}
+                  <View style={styles.imageWrapper}>
+                    {!isImageFailed && item.image ? (
+                      <>
+                        {isImageLoading && (
+                          <View style={styles.imageLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#e91e63" />
+                          </View>
+                        )}
+                        {typeof item.image === "number" ? (
+                          <Image
+                            source={item.image}
+                            style={styles.itemImage}
+                            onLoadStart={() => setLoadingImages(new Set([...loadingImages, itemId]))}
+                            onLoadEnd={() => setLoadingImages(new Set([...Array.from(loadingImages)].filter(id => id !== itemId)))}
+                            onError={() => {
+                              console.log(`❌ Image failed: ${item.name}`);
+                              setFailedImages(new Set([...failedImages, itemId]));
+                            }}
+                          />
+                        ) : (
+                          <Image
+                            source={{ uri: item.image }}
+                            style={styles.itemImage}
+                            onLoadStart={() => setLoadingImages(new Set([...loadingImages, itemId]))}
+                            onLoadEnd={() => setLoadingImages(new Set([...Array.from(loadingImages)].filter(id => id !== itemId)))}
+                            onError={() => {
+                              console.log(`❌ Image failed: ${item.name}`);
+                              setFailedImages(new Set([...failedImages, itemId]));
+                            }}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <View style={[styles.itemImage, styles.imagePlaceholder]}>
+                        <Ionicons name="image-outline" size={24} color="#ccc" />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Product Info */}
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.itemPrice}>₫ {item.price.toLocaleString()}</Text>
+                  </View>
+
+                  {/* Quantity & Total */}
+                  <View style={styles.itemRight}>
+                    <Text style={styles.itemQty}>x{item.quantity}</Text>
+                    <Text style={styles.itemTotal}>₫ {(item.price * item.quantity).toLocaleString()}</Text>
+                  </View>
                 </View>
-                <View style={styles.itemRight}>
-                  <Text style={styles.itemQty}>x{item.quantity}</Text>
-                  <Text style={styles.itemTotal}>₫ {(item.price * item.quantity).toLocaleString()}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           {/* Price Breakdown */}
@@ -438,7 +486,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  itemImage: { width: 50, height: 50, borderRadius: 6, marginRight: 10, backgroundColor: '#f0f0f0' },
+  imageWrapper: {
+    position: 'relative',
+    width: 70,
+    height: 70,
+  },
+  itemImage: { 
+    width: 70, 
+    height: 70, 
+    borderRadius: 8, 
+    marginRight: 10, 
+    backgroundColor: '#f0f0f0',
+    resizeMode: 'cover',
+  },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  imageLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    zIndex: 10,
+  },
   itemName: { fontSize: 12, fontWeight: '600', color: '#333' },
   itemPrice: { fontSize: 12, color: '#e91e63', fontWeight: '600', marginTop: 3 },
   itemRight: { alignItems: 'flex-end', marginLeft: 8 },

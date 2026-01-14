@@ -1,20 +1,24 @@
+import { PaymentMethod, PaymentMethodsScreen } from "@/components/PaymentMethods";
+import { useRouter } from "expo-router";
+import { ChevronRight, MapPin } from "lucide-react-native";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Alert,
+  Image,
   ScrollView,
   StyleSheet,
+  Text,
   TouchableOpacity,
-  Alert,
+  View,
 } from "react-native";
-import { ChevronRight, MapPin, Package } from "lucide-react-native";
-import { PaymentMethodsScreen, PaymentMethod } from "@/components/PaymentMethods";
-import { useRouter } from "expo-router";
 
 export default function CheckoutScreen() {
   const router = useRouter();
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentMethod | null>(null);
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
 
   const paymentMethods: PaymentMethod[] = [
     {
@@ -112,25 +116,49 @@ export default function CheckoutScreen() {
 
           {/* Order Items */}
           <View style={styles.orderItem}>
-            <View style={styles.itemIcon}>
-              <Package size={24} color="#fff" />
+            <View style={styles.imageWrapper}>
+              <Image
+                source={{ uri: "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=200&q=80" }}
+                style={styles.itemImage}
+                onLoadStart={() => setLoadingImages(new Set([...loadingImages, "item1"]))}
+                onLoadEnd={() => setLoadingImages(new Set([...Array.from(loadingImages)].filter(id => id !== "item1")))}
+                onError={() => setFailedImages(new Set([...failedImages, "item1"]))}
+              />
+              {loadingImages.has("item1") && (
+                <View style={styles.imageLoadingOverlay}>
+                  <ActivityIndicator size="small" color="#e91e63" />
+                </View>
+              )}
             </View>
             <View style={styles.itemDetails}>
-              <Text style={styles.itemName}>Sản phẩm 1</Text>
+              <Text style={styles.itemName}>Hoa Hồng Đỏ</Text>
               <Text style={styles.itemDescription}>Số lượng: 2</Text>
+              <Text style={styles.itemSubtotal}>₫150.000 × 2</Text>
             </View>
-            <Text style={styles.itemPrice}>250.000₫</Text>
+            <Text style={styles.itemPrice}>300.000₫</Text>
           </View>
 
           <View style={styles.orderItem}>
-            <View style={[styles.itemIcon, { backgroundColor: "#3b82f6" }]}>
-              <Package size={24} color="#fff" />
+            <View style={styles.imageWrapper}>
+              <Image
+                source={{ uri: "https://images.unsplash.com/photo-1504196606672-aef5c9cefc92?w=200&q=80" }}
+                style={styles.itemImage}
+                onLoadStart={() => setLoadingImages(new Set([...loadingImages, "item2"]))}
+                onLoadEnd={() => setLoadingImages(new Set([...Array.from(loadingImages)].filter(id => id !== "item2")))}
+                onError={() => setFailedImages(new Set([...failedImages, "item2"]))}
+              />
+              {loadingImages.has("item2") && (
+                <View style={styles.imageLoadingOverlay}>
+                  <ActivityIndicator size="small" color="#e91e63" />
+                </View>
+              )}
             </View>
             <View style={styles.itemDetails}>
-              <Text style={styles.itemName}>Sản phẩm 2</Text>
+              <Text style={styles.itemName}>Hoa Tulip Vàng</Text>
               <Text style={styles.itemDescription}>Số lượng: 1</Text>
+              <Text style={styles.itemSubtotal}>₫200.000 × 1</Text>
             </View>
-            <Text style={styles.itemPrice}>150.000₫</Text>
+            <Text style={styles.itemPrice}>200.000₫</Text>
           </View>
 
           {/* Summary */}
@@ -332,6 +360,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f3f4f6",
   },
+  imageWrapper: {
+    position: 'relative',
+    width: 80,
+    height: 80,
+  },
+  itemImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    backgroundColor: "#f5f5f5",
+    resizeMode: 'cover',
+  },
+  imageLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+    zIndex: 10,
+  },
   itemIcon: {
     width: 48,
     height: 48,
@@ -352,6 +404,11 @@ const styles = StyleSheet.create({
   itemDescription: {
     fontSize: 12,
     color: "#6b7280",
+  },
+  itemSubtotal: {
+    fontSize: 11,
+    color: "#9ca3af",
+    marginTop: 2,
   },
   itemPrice: {
     fontSize: 14,

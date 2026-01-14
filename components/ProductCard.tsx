@@ -34,7 +34,17 @@ export function ProductCard({
 
       {/* Hình ảnh - click để xem chi tiết */}
       <TouchableOpacity onPress={onPressImage}>
-        <Image source={product.image} style={styles.image} resizeMode="cover" />
+        <Image 
+          source={
+            typeof product.image_url === 'string' && product.image_url.startsWith('http')
+              ? { uri: product.image_url }
+              : typeof product.image_url === 'string'
+              ? { uri: `http://localhost:3000/${product.image_url}` }
+              : { uri: 'https://via.placeholder.com/200' }
+          } 
+          style={styles.image} 
+          resizeMode="cover" 
+        />
       </TouchableOpacity>
 
       {/* Thông tin */}
