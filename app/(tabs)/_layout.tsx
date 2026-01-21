@@ -18,6 +18,7 @@ export default function TabLayout() {
         // hide the native Tabs bar because the app uses a custom bottom nav in `index.tsx`
         tabBarStyle: { display: 'none' },
         tabBarShowLabel: false,
+        
       }}
     >
       <Tabs.Screen

@@ -1,4 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { getAuth } from "firebase/auth";
+import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
 import React, { useState } from "react";
 import {
   Alert,
@@ -13,13 +15,68 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Address, DEFAULT_ADDRESSES } from "../data/addressData";
+import { db } from '../config/firestore';
+import { Address } from "../data/addressData";
+
+const auth = getAuth();
+
+import { Commune, District, Province, VIETNAM_PROVINCES } from '../data/vietnamAdministrative';
+// Xóa địa chỉ khỏi Firestore theo doc id động
+async function deleteAddressFromFirebase(addressId: string) {
+  try {
+    await deleteDoc(doc(db, 'addresses', addressId));
+  } catch (e) {
+    console.error('Lỗi xóa địa chỉ trên Firebase:', e);
+  }
+}
+// Lưu địa chỉ lên Firestore với id động
+async function saveAddressToFirebase(address: Address) {
+  try {
+    await setDoc(doc(db, 'addresses', address.id), address);
+  } catch (e) {
+    console.error('Lỗi lưu địa chỉ lên Firebase:', e);
+  }
+}
+interface Props {
+  onBack: () => void;
+  onSelectAddress?: (address: Address) => void;
+}
 
 // Custom hook for address management - can be used anywhere
 export function useAddresses() {
-  const [addresses, setAddresses] = useState<Address[]>(DEFAULT_ADDRESSES);
-  const [selectedAddress, setSelectedAddress] = useState<Address | null>(DEFAULT_ADDRESSES[0] || null);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
 
+  const userId = auth.currentUser?.uid;
+
+  /* ===== LOAD ADDRESS FROM FIREBASE ===== */
+  React.useEffect(() => {
+    if (!userId) return;
+
+    const loadAddresses = async () => {
+      try {
+        const snap = await getDocs(
+          collection(db, "users", userId, "addresses")
+        );
+
+        const list: Address[] = snap.docs.map(d => ({
+          id: d.id,
+          ...(d.data() as Omit<Address, "id">),
+        }));
+
+        setAddresses(list);
+        setSelectedAddress(
+          list.find(a => a.isDefault) || list[0] || null
+        );
+      } catch (e) {
+        console.log("Load address error:", e);
+      }
+    };
+
+    loadAddresses();
+  }, [userId]);
+
+  /* ===== ACTIONS ===== */
   const updateAddresses = (newAddresses: Address[]) => {
     setAddresses(newAddresses);
   };
@@ -28,12 +85,21 @@ export function useAddresses() {
     setSelectedAddress(address);
   };
 
-  const addAddress = (address: Address) => {
-    setAddresses([...addresses, address]);
+  const addAddress = async (address: Address) => {
+    if (!userId) return;
+    await setDoc(
+      doc(db, "users", userId, "addresses", address.id),
+      address
+    );
+    setAddresses(prev => [...prev, address]);
   };
 
-  const removeAddress = (id: string) => {
-    setAddresses(addresses.filter(a => a.id !== id));
+  const removeAddress = async (id: string) => {
+    if (!userId) return;
+    await deleteDoc(
+      doc(db, "users", userId, "addresses", id)
+    );
+    setAddresses(prev => prev.filter(a => a.id !== id));
   };
 
   return {
@@ -47,23 +113,23 @@ export function useAddresses() {
 }
 
 interface AddressManagementProps {
-  addresses: Address[];
+  addresses?: Address[];
   onBack: () => void;
   onSelectAddress: (address: Address) => void;
-  onAddAddress?: (address?: Address) => void;
+  onAddAddress: (address: Address) => void;
   onRemoveAddress?: (id: string) => void;
 }
 
 export function AddressManagement({
-  addresses,
+  addresses = [], // ✅ cực kỳ quan trọng
   onBack,
   onSelectAddress,
   onAddAddress,
   onRemoveAddress,
 }: AddressManagementProps) {
-  const [selectedAddress, setSelectedAddress] = useState<Address | null>(
-    addresses[0] || null
-  );
+const [selectedAddress, setSelectedAddress] = useState<Address | null>(
+  addresses.length > 0 ? addresses[0] : null
+);
   const [useCurrentLocation, setUseCurrentLocation] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -72,6 +138,10 @@ export function AddressManagement({
   const [formPhone, setFormPhone] = useState('');
   const [formStreet, setFormStreet] = useState('');
   const [formCity, setFormCity] = useState('');
+  // Thêm state cho chọn tỉnh, huyện, xã
+  const [selectedProvince, setSelectedProvince] = useState<Province | null>(null);
+  const [selectedDistrict, setSelectedDistrict] = useState<District | null>(null);
+  const [selectedCommune, setSelectedCommune] = useState<Commune | null>(null);
   const [formIsDefault, setFormIsDefault] = useState(false);
   const [formType, setFormType] = useState<'Văn Phòng' | 'Nhà Riêng'>('Văn Phòng');
 
@@ -83,6 +153,9 @@ export function AddressManagement({
     setFormCity('');
     setFormIsDefault(false);
     setFormType('Văn Phòng');
+    setSelectedProvince(null);
+    setSelectedDistrict(null);
+    setSelectedCommune(null);
     setShowAddModal(true);
   };
 
@@ -94,22 +167,44 @@ export function AddressManagement({
     setFormCity(address.city || '');
     setFormIsDefault(!!address.isDefault);
     setFormType(address.name && address.name.includes('Văn') ? 'Văn Phòng' : 'Nhà Riêng');
+    // Tìm lại tỉnh/huyện/xã từ city nếu có
+    const province = VIETNAM_PROVINCES.find(p => address.city && address.city.includes(p.name));
+    setSelectedProvince(province || null);
+    if (province) {
+      const district = province.districts.find(d => address.city && address.city.includes(d.name));
+      setSelectedDistrict(district || null);
+      if (district) {
+        const commune = district.communes.find(c => address.city && address.city.includes(c.name));
+        setSelectedCommune(commune || null);
+      } else setSelectedCommune(null);
+    } else {
+      setSelectedDistrict(null);
+      setSelectedCommune(null);
+    }
     setShowAddModal(true);
   };
 
   const closeAddModal = () => setShowAddModal(false);
 
   const handleSaveNewAddress = () => {
-    const newAddr: Address = {
-      id: editingId || Date.now().toString(),
-      name: formName || (formType === 'Văn Phòng' ? 'Văn Phòng' : 'Nhà Riêng'),
-      street: formStreet || 'Địa chỉ',
-      city: formCity || '',
-      state: '',
-      zip: '',
-      phone: formPhone || '',
-      isDefault: formIsDefault,
-    };
+    // Gộp thông tin tỉnh/huyện/xã vào city
+    let city = '';
+    if (selectedProvince) city += selectedProvince.name;
+    if (selectedDistrict) city += ', ' + selectedDistrict.name;
+    if (selectedCommune) city += ', ' + selectedCommune.name;
+    if (!city) city = formCity;
+const addressId = editingId ?? Date.now().toString();
+
+const newAddr: Address = {
+  id: addressId,
+  name: formName || (formType === 'Văn Phòng' ? 'Văn Phòng' : 'Nhà Riêng'),
+  street: formStreet || 'Địa chỉ',
+  city,
+  state: '',
+  zip: '',
+  phone: formPhone || '',
+  isDefault: formIsDefault,
+};
     onAddAddress?.(newAddr);
     onSelectAddress(newAddr);
     setSelectedAddress(newAddr);
@@ -235,7 +330,7 @@ export function AddressManagement({
 
           <FlatList
             data={addresses}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item, index) => `${item.id}-${index}`}
             scrollEnabled={false}
             renderItem={({ item }) => (
               <TouchableOpacity
@@ -288,6 +383,9 @@ export function AddressManagement({
             <Ionicons name="chevron-forward" size={20} color="#ccc" />
           </TouchableOpacity>
         </View>
+<TouchableOpacity onPress={onBack}>
+  <Ionicons name="arrow-back" size={24} />
+</TouchableOpacity>
 
         {/* CHOOSE LOCATION SECTION */}
         <View style={styles.locationSection}>
@@ -296,10 +394,9 @@ export function AddressManagement({
           {/* MAP PLACEHOLDER */}
           <TouchableOpacity style={styles.mapContainer} onPress={() => (showAddModal ? handleMapPickForForm() : handleAddCurrentLocation())} activeOpacity={0.8}>
             <Image
-              source={require("../assets/images/hoahong.jpg")}
-              style={styles.mapImage}
-              resizeMode="cover"
-            />
+              source={require("../assets/images/map.jpg")}
+            style={styles.mapImage}
+              onError={() => console.log("❌ map.jpg not found")}            />
             <View style={styles.mapOverlay}>
               <Ionicons name="location" size={40} color="#e91e63" />
             </View>
@@ -327,8 +424,47 @@ export function AddressManagement({
                 <Text style={styles.inputLabel}>Số điện thoại</Text>
                 <TextInput value={formPhone} onChangeText={setFormPhone} style={styles.input} placeholder="Số điện thoại" keyboardType="phone-pad" />
 
-                <Text style={styles.inputLabel}>Tỉnh/Thành phố, Quận/Huyện, Phường/Xã</Text>
-                <TextInput value={formCity} onChangeText={setFormCity} style={styles.input} placeholder="Tỉnh/Thành phố" />
+
+                <Text style={styles.inputLabel}>Tỉnh/Thành phố</Text>
+                <View style={[styles.input, { padding: 0 }]}> 
+                  <ScrollView showsVerticalScrollIndicator={true} style={{ maxHeight: 200 }}>
+                    {VIETNAM_PROVINCES.map((p) => (
+                      <TouchableOpacity key={p.id} onPress={() => { setSelectedProvince(p); setSelectedDistrict(null); setSelectedCommune(null); }} style={{ padding: 8, backgroundColor: selectedProvince?.id === p.id ? '#e91e63' : '#fff', borderRadius: 8, marginBottom: 8 }}>
+                        <Text style={{ color: selectedProvince?.id === p.id ? '#fff' : '#333' }}>{p.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                {selectedProvince && (
+                  <>
+                    <Text style={styles.inputLabel}>Quận/Huyện</Text>
+                    <View style={[styles.input, { padding: 0 }]}> 
+                      <ScrollView showsVerticalScrollIndicator={true} style={{ maxHeight: 200 }}>
+                        {selectedProvince.districts.map((d) => (
+                          <TouchableOpacity key={d.id} onPress={() => { setSelectedDistrict(d); setSelectedCommune(null); }} style={{ padding: 8, backgroundColor: selectedDistrict?.id === d.id ? '#e91e63' : '#fff', borderRadius: 8, marginBottom: 8 }}>
+                            <Text style={{ color: selectedDistrict?.id === d.id ? '#fff' : '#333' }}>{d.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </>
+                )}
+
+                {selectedDistrict && (
+                  <>
+                    <Text style={styles.inputLabel}>Phường/Xã</Text>
+                    <View style={[styles.input, { padding: 0 }]}> 
+                      <ScrollView showsVerticalScrollIndicator={true} style={{ maxHeight: 200 }}>
+                        {selectedDistrict.communes.map((c) => (
+                          <TouchableOpacity key={c.id} onPress={() => setSelectedCommune(c)} style={{ padding: 8, backgroundColor: selectedCommune?.id === c.id ? '#e91e63' : '#fff', borderRadius: 8, marginBottom: 8 }}>
+                            <Text style={{ color: selectedCommune?.id === c.id ? '#fff' : '#333' }}>{c.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  </>
+                )}
 
                 <Text style={styles.inputLabel}>Tên đường, Tòa nhà, Số nhà</Text>
                 <TextInput value={formStreet} onChangeText={setFormStreet} style={styles.input} placeholder="Địa chỉ" />
@@ -414,7 +550,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 15,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
@@ -608,7 +744,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f0f0f0',
     backgroundColor: '#fff',
   },
-  modalTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600' },
+  modalTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600',    paddingVertical: 30,
+ },
   inputLabel: { fontSize: 13, color: '#666', marginBottom: 6 },
   input: {
     backgroundColor: '#fff',

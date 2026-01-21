@@ -32,6 +32,7 @@ interface Product {
   name: string;
   price: number | string;
   image?: string;
+  image_url?: string;
   description?: string;
   category?: string;
   tags?: string[];
@@ -151,30 +152,47 @@ export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, o
   };
 
   // Tìm kiếm bằng hình
-  const pickImage = async () => {
-    if (!ImagePicker) {
-      Alert.alert('Package missing', 'Please install expo-image-picker to use image search');
-      return;
-    }
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') {
-      Alert.alert('Permission required', 'Allow access to photos to use image search');
-      return;
-    }
+const pickImage = async () => {
+  if (!ImagePicker) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 1,
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (perm.status !== 'granted') return;
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    quality: 0.7,
+    base64: true, // ⭐ QUAN TRỌNG
+  });
+
+  if (!result.canceled && result.assets?.[0]) {
+    const imageBase64 = result.assets[0].base64;
+    searchByImage(imageBase64);
+  }
+};
+const searchByImage = async (base64: string) => {
+  try {
+    setLoading(true);
+
+    const res = await fetch("http://YOUR_BACKEND/image-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: base64 }),
     });
 
-    const asset = result?.assets?.[0] || (result as any).uri ? (result as any) : null;
-    if (asset) {
-      // TODO: replace with real OCR/vision detection
-      const detectedText = 'hoa';
-      setQuery(detectedText);
-      performSearch(detectedText);
+    const data = await res.json();
+
+    if (data.keyword) {
+      setQuery(data.keyword);
+      performSearch(data.keyword);
+    } else {
+      Alert.alert("Không nhận diện được hình ảnh");
     }
-  };
+  } catch (e) {
+    Alert.alert("Lỗi tìm kiếm bằng hình ảnh");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const openCamera = async () => {
     if (!ImagePicker) {
@@ -275,34 +293,42 @@ export default function SearchScreen({ navigation, products = SAMPLE_PRODUCTS, o
             style={styles.productCard}
           >
             <View style={styles.productImageContainer}>
-              {item.image && !failedImages.has(item.id) ? (
-                typeof item.image === "number" ? (
-                  <Image 
-                    source={item.image} 
-                    style={styles.productImage}
-                    onLoad={() => console.log(`✅ Image loaded: ${item.name}`)}
-                    onError={(err) => {
-                      console.error(`❌ Image failed to load: ${item.name}`, err);
-                      setFailedImages(new Set([...failedImages, item.id]));
-                    }}
-                  />
-                ) : (
-                  <Image
-                    source={{ uri: item.image }}
-                    style={styles.productImage}
-                    onLoad={() => console.log(`✅ Image loaded: ${item.name}`)}
-                    onError={(err) => {
-                      console.error(`❌ Image failed to load: ${item.name} (${item.image})`, err);
-                      setFailedImages(new Set([...failedImages, item.id]));
-                    }}
-                  />
-                )
-              ) : (
-                <View style={[styles.productImage, styles.placeholderImage]}>
-                  <Ionicons name="image-outline" size={50} color="#ddd" />
-                  <Text style={styles.placeholderText}>Không có ảnh</Text>
-                </View>
-              )}
+              {(() => {
+                const img = item.image_url ?? item.image;
+                if (img && !failedImages.has(item.id)) {
+                  if (typeof img === "number") {
+                    return (
+                      <Image
+                        source={img}
+                        style={styles.productImage}
+                        onLoad={() => console.log(`✅ Image loaded: ${item.name}`)}
+                        onError={(err) => {
+                          console.error(`❌ Image failed to load: ${item.name}`, err);
+                          setFailedImages(new Set([...failedImages, item.id]));
+                        }}
+                      />
+                    );
+                  } else if (typeof img === "string" && img.startsWith("http")) {
+                    return (
+                      <Image
+                        source={{ uri: img } as const}
+                        style={styles.productImage}
+                        onLoad={() => console.log(`✅ Image loaded: ${item.name}`)}
+                        onError={(err) => {
+                          console.error(`❌ Image failed to load: ${item.name} (${img})`, err);
+                          setFailedImages(new Set([...failedImages, item.id]));
+                        }}
+                      />
+                    );
+                  }
+                }
+                return (
+                  <View style={[styles.productImage, styles.placeholderImage]}>
+                    <Ionicons name="image-outline" size={50} color="#ddd" />
+                    <Text style={styles.placeholderText}>Không có ảnh</Text>
+                  </View>
+                );
+              })()}
             </View>
             
             <View style={styles.productInfo}>

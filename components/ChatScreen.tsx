@@ -1,5 +1,7 @@
 // ChatScreen.tsx
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Stack } from "expo-router";
+
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -13,7 +15,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
 interface Product {
   id: string | number;
   name: string;
@@ -64,6 +65,7 @@ export default function ChatScreen({ onAddToCart }: ChatScreenProps) {
         "http://localhost:3000/chat",
         `http://92.168.1.50:3000/chat`,
         "http://10.0.2.2:3000/chat",
+        "http://192.168.1.89:3000/chat",
       ];
 
       let success = false;
@@ -204,18 +206,28 @@ export default function ChatScreen({ onAddToCart }: ChatScreenProps) {
     );
   };
 
-  return (
+return (
+  <>
+    {/* Ẩn header mặc định của navigator */}
+    <Stack.Screen options={{ headerShown: false }} />
+
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      {/* HEADER HỒNG CỦA BẠN */}
+ {/* HEADER HỒNG CỦA BẠN */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Chat tư vấn</Text>
+      </View>
       <FlatList
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
         renderItem={renderMessage}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 20 }}
       />
+
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
@@ -229,11 +241,12 @@ export default function ChatScreen({ onAddToCart }: ChatScreenProps) {
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
-  );
+  </>
+);
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  container: { flex: 1, backgroundColor: "#f5f5f5"},
   messageWrapper: { marginVertical: 24 },
   userWrapper: { alignSelf: "flex-end", marginRight: 10 },
   botWrapper: { alignSelf: "flex-start", marginLeft: 10 },
@@ -298,4 +311,22 @@ const styles = StyleSheet.create({
   },
   productPrice: { color: "#FF1493", fontWeight: "600", fontSize: 12, marginBottom: 4 },
   productDescription: { color: "#666", fontSize: 11, textAlign: "center" },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    height: 56,
+    paddingHorizontal: 16,
+    backgroundColor: "#fff",
+    // Không paddingTop, không paddingBottom để icon và text cùng giữa
+  },
+
+headerTitle: {
+  marginLeft: 12,
+  fontSize: 18,
+  fontWeight: "bold",
+  color: "#FF69B4",
+  textAlignVertical: "center",
+},
+
 });

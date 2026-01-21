@@ -65,11 +65,18 @@ export default function RegisterScreen() {
       const result = await response.json();
       console.log('[Firebase SignUp Response]:', result);
 
-      if (result.idToken) {
-        Alert.alert('✓ Thành công', 'Tài khoản đã được tạo! Vui lòng đăng nhập.', [
-          { text: 'OK', onPress: () => router.replace('/(auth)/Login') }
-        ]);
-      } else {
+if (result.idToken) {
+  Alert.alert(
+    '✓ Thành công',
+    'Tài khoản đã được tạo! Vui lòng đăng nhập.',
+    [
+      {
+        text: 'OK',
+        onPress: () => router.replace('/(auth)/Login'),
+      },
+    ],
+    { cancelable: false }
+  );      } else {
         const err = result.error?.message || 'Đăng ký thất bại';
         console.error('[Firebase SignUp Error]:', err, result.error);
         if (err.includes('EMAIL_EXISTS')) {
@@ -194,7 +201,7 @@ export default function RegisterScreen() {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: '#fff0f6', paddingHorizontal: 16, paddingBottom: 32 },
-  header: { alignItems: 'center', paddingVertical: 24 },
+  header: { alignItems: 'center', paddingVertical: 45 },
   logoContainer: { width: 80, height: 80, borderRadius: 24, backgroundColor: '#f472b6', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
   subtitle: { fontSize: 14, color: '#6b7280' },

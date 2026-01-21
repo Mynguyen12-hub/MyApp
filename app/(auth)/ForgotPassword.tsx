@@ -12,26 +12,14 @@ import {
 } from "react-native";
 
 import { auth } from "@/config/firebaseConfig";
-import { updatePassword } from "firebase/auth";
-import {
-  deleteDoc,
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
+import { sendPasswordResetEmail } from "firebase/auth";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
-
-  const [step, setStep] = useState<"email" | "otp" | "reset">("email");
   const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
 
-  /* ================= SEND OTP ================= */
-  const sendOtp = async () => {
+  const sendResetEmail = async () => {
     setError("");
 
     if (!email.includes("@")) {
@@ -39,70 +27,18 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-    await setDoc(doc(db, "passwordOtps", email), {
-      otp: otpCode,
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 phút
-      createdAt: serverTimestamp(),
-    });
-
-    Alert.alert("OTP", `Mã OTP của bạn là: ${otpCode}`);
-    setStep("otp");
+    try {
+      await sendPasswordResetEmail(auth, email);
+      Alert.alert(
+        "Thành công",
+        "Firebase đã gửi link đổi mật khẩu về email của bạn"
+      );
+      router.back();
+    } catch (err) {
+      setError("Email không tồn tại hoặc lỗi hệ thống");
+    }
   };
 
-  /* ================= VERIFY OTP ================= */
-  const verifyOtp = async () => {
-    setError("");
-
-    const ref = doc(db, "passwordOtps", email);
-    const snap = await getDoc(ref);
-
-    if (!snap.exists()) {
-      setError("OTP không tồn tại");
-      return;
-    }
-
-    const data = snap.data();
-
-    if (Date.now() > data.expiresAt) {
-      setError("OTP đã hết hạn");
-      await deleteDoc(ref);
-      return;
-    }
-
-    if (data.otp !== otp) {
-      setError("OTP không đúng");
-      return;
-    }
-
-    setStep("reset");
-  };
-
-  /* ================= RESET PASSWORD ================= */
-  const resetPassword = async () => {
-    setError("");
-
-    if (newPassword.length < 6) {
-      setError("Mật khẩu phải ≥ 6 ký tự");
-      return;
-    }
-
-    const user = auth.currentUser;
-
-    if (!user) {
-      setError("Bạn cần đăng nhập lại");
-      return;
-    }
-
-    await updatePassword(user, newPassword);
-    await deleteDoc(doc(db, "passwordOtps", email));
-
-    Alert.alert("Thành công", "Mật khẩu đã được đổi");
-    router.back();
-  };
-
-  /* ================= UI ================= */
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -112,52 +48,19 @@ export default function ForgotPasswordScreen() {
         <Text style={styles.title}>Quên mật khẩu</Text>
       </View>
 
-      {step === "email" && (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-          />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <TouchableOpacity style={styles.button} onPress={sendOtp}>
-            <Text style={styles.buttonText}>Gửi OTP</Text>
-          </TouchableOpacity>
-        </>
-      )}
+      <TextInput
+        style={styles.input}
+        placeholder="Nhập email đã đăng ký"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+      />
 
-      {step === "otp" && (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Nhập OTP"
-            value={otp}
-            onChangeText={setOtp}
-            keyboardType="number-pad"
-          />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <TouchableOpacity style={styles.button} onPress={verifyOtp}>
-            <Text style={styles.buttonText}>Xác nhận OTP</Text>
-          </TouchableOpacity>
-        </>
-      )}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {step === "reset" && (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Mật khẩu mới"
-            secureTextEntry
-            value={newPassword}
-            onChangeText={setNewPassword}
-          />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <TouchableOpacity style={styles.button} onPress={resetPassword}>
-            <Text style={styles.buttonText}>Đổi mật khẩu</Text>
-          </TouchableOpacity>
-        </>
-      )}
+      <TouchableOpacity style={styles.button} onPress={sendResetEmail}>
+        <Text style={styles.buttonText}>Gửi link đổi mật khẩu</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -174,7 +77,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 60,
+    paddingVertical: 20,
   },
   title: {
     fontSize: 22,

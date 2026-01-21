@@ -7,6 +7,7 @@ interface ProductCardProps {
   product: Product;
   onAddToCart: (product: Product) => void;
   isFavorite: boolean;
+  iewMode?: "grid" | "list"; 
   onToggleFavorite: (productId: number) => void;
   onPressImage?: () => void;
 }
@@ -14,6 +15,7 @@ interface ProductCardProps {
 export function ProductCard({
   product,
   onAddToCart,
+   viewMode = "grid", 
   isFavorite,
   onToggleFavorite,
   onPressImage,

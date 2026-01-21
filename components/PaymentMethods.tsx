@@ -1,16 +1,14 @@
+import { useNavigation } from "@react-navigation/native";
+import { Check, ChevronDown, Heart, Search } from "lucide-react-native";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
+  Text,
   TextInput,
-  Dimensions,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { ChevronDown, Search, Heart, Check } from "lucide-react-native";
-
-const { width } = Dimensions.get("window");
 
 export interface PaymentMethod {
   id: string;
@@ -20,167 +18,92 @@ export interface PaymentMethod {
   provider?: string;
   last4?: string;
   expiryDate?: string;
-  bank?: string;
   isDefault?: boolean;
   isFavorite?: boolean;
-  fees?: string;
   status?: "active" | "expired" | "expiring";
-  cardBrand?: string;
 }
 
-interface PaymentMethodsScreenProps {
+interface Props {
   methods: PaymentMethod[];
+  cartItems: any[];
+  totalPrice: number;
   onBack: () => void;
-  onSelectMethod: (method: PaymentMethod) => void;
 }
 
 export function PaymentMethodsScreen({
   methods,
+  cartItems,
+  totalPrice,
   onBack,
-  onSelectMethod,
-}: PaymentMethodsScreenProps) {
+}: Props) {
+  const navigation = useNavigation<any>();
+
+  const [selectedMethod, setSelectedMethod] = useState<string | null>(
+    methods.find((m) => m.isDefault)?.id || null
+  );
+
   const [expandedGroups, setExpandedGroups] = useState({
     recommended: true,
     card: true,
     digital: true,
-    other: false,
+    other: true,
   });
-  const [selectedMethod, setSelectedMethod] = useState<string | null>(
-    methods.find((m) => m.isDefault)?.id || null
-  );
-  const [searchText, setSearchText] = useState("");
 
-  // Group methods by type
-  const recommendedMethods = methods.filter((m) => m.isDefault || m.isFavorite);
+  const toggleGroup = (key: keyof typeof expandedGroups) => {
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const recommendedMethods = methods.filter(
+    (m) => m.isDefault || m.isFavorite
+  );
   const cardMethods = methods.filter((m) => m.type === "card");
   const digitalMethods = methods.filter(
-    (m) => (m.type === "momo" || m.type === "bank") && !m.isDefault
+    (m) => m.type === "momo" || m.type === "bank"
   );
-  const otherMethods = methods.filter(
-    (m) => m.type === "cod" && !m.isDefault
-  );
-
-  const getStatusBadge = (status?: string) => {
-    switch (status) {
-      case "expired":
-        return { text: "Hết hạn", color: "#ef4444", bgColor: "#fee2e2" };
-      case "expiring":
-        return { text: "Sắp hết hạn", color: "#f59e0b", bgColor: "#fef3c7" };
-      default:
-        return null;
-    }
-  };
-
-  const toggleGroup = (group: keyof typeof expandedGroups) => {
-    setExpandedGroups((prev) => ({
-      ...prev,
-      [group]: !prev[group],
-    }));
-  };
+  const otherMethods = methods.filter((m) => m.type === "cod");
 
   const renderMethodCard = (method: PaymentMethod, highlight = false) => {
-    const statusBadge = getStatusBadge(method.status);
     const isSelected = selectedMethod === method.id;
 
     return (
       <TouchableOpacity
         key={method.id}
-        onPress={() => setSelectedMethod(method.id)}
         style={[
           styles.methodCard,
           highlight && styles.methodCardHighlight,
           isSelected && styles.methodCardSelected,
         ]}
+        onPress={() => setSelectedMethod(method.id)}
       >
-        <View style={styles.methodCardContent}>
-          {/* Left: Icon & Details */}
-          <View style={styles.methodLeft}>
-            <View
-              style={[
-                styles.iconWrapper,
-                highlight && styles.iconWrapperHighlight,
-              ]}
-            >
-              <Text style={styles.cardIcon}>
-                {method.type === "card"
-                  ? "💳"
-                  : method.type === "momo"
-                  ? "📱"
-                  : method.type === "bank"
-                  ? "🏦"
-                  : "💵"}
-              </Text>
-            </View>
+        <View style={styles.methodRow}>
+          <Text style={styles.icon}>
+            {method.type === "card"
+              ? "💳"
+              : method.type === "momo"
+              ? "📱"
+              : method.type === "bank"
+              ? "🏦"
+              : "💵"}
+          </Text>
 
-            <View style={styles.methodInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.methodName} numberOfLines={1}>
-                  {method.name}
-                </Text>
-                {method.isDefault && (
-                  <View style={styles.defaultLabel}>
-                    <Text style={styles.defaultLabelText}>Mặc định</Text>
-                  </View>
-                )}
-              </View>
-
-              {method.provider && (
-                <Text style={styles.methodProvider} numberOfLines={1}>
-                  {method.provider}
-                </Text>
-              )}
-              {method.last4 && (
-                <Text style={styles.methodLast4}>•••• {method.last4}</Text>
-              )}
-              {method.expiryDate && (
-                <Text style={styles.methodExpiry}>{method.expiryDate}</Text>
-              )}
-            </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.methodName}>{method.name}</Text>
+            {method.provider && (
+              <Text style={styles.methodSub}>{method.provider}</Text>
+            )}
           </View>
 
-          {/* Right: Badges & Buttons */}
-          <View style={styles.methodRight}>
-            <View style={styles.badgesAndButtons}>
-              {statusBadge && (
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: statusBadge.bgColor },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusBadgeText,
-                      { color: statusBadge.color },
-                    ]}
-                  >
-                    {statusBadge.text}
-                  </Text>
-                </View>
-              )}
+          {method.isFavorite && (
+            <Heart size={16} color="#ef4444" fill="#ef4444" />
+          )}
 
-              <View style={styles.actionButtons}>
-                <TouchableOpacity style={styles.actionBtn}>
-                  <Heart
-                    size={16}
-                    color={method.isFavorite ? "#ef4444" : "#d1d5db"}
-                    fill={method.isFavorite ? "#ef4444" : "none"}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Radio/Checkbox */}
-            <View
-              style={[
-                styles.radioButton,
-                isSelected && styles.radioButtonSelected,
-              ]}
-            >
-              {isSelected && (
-                <Check size={12} color="#fff" strokeWidth={3} />
-              )}
-            </View>
+          <View
+            style={[
+              styles.radio,
+              isSelected && styles.radioSelected,
+            ]}
+          >
+            {isSelected && <Check size={12} color="#fff" />}
           </View>
         </View>
       </TouchableOpacity>
@@ -189,406 +112,228 @@ export function PaymentMethodsScreen({
 
   const renderGroup = (
     title: string,
-    items: PaymentMethod[],
-    groupKey: keyof typeof expandedGroups,
+    data: PaymentMethod[],
+    key: keyof typeof expandedGroups,
     highlight = false
   ) => {
-    if (items.length === 0) return null;
-
-    const isExpanded = expandedGroups[groupKey];
+    if (data.length === 0) return null;
 
     return (
-      <View key={groupKey} style={styles.group}>
+      <View style={{ marginBottom: 16 }}>
         <TouchableOpacity
-          onPress={() => toggleGroup(groupKey)}
           style={[
             styles.groupHeader,
             highlight && styles.groupHeaderHighlight,
           ]}
+          onPress={() => toggleGroup(key)}
         >
-          <View style={styles.groupTitleContainer}>
-            <Text
-              style={[
-                styles.groupTitle,
-                highlight && styles.groupTitleHighlight,
-              ]}
-            >
-              {title}
-            </Text>
-            <Text
-              style={[
-                styles.groupCount,
-                highlight && styles.groupCountHighlight,
-              ]}
-            >
-              {items.length}
-            </Text>
-          </View>
+          <Text
+            style={[
+              styles.groupTitle,
+              highlight && { color: "#fff" },
+            ]}
+          >
+            {title}
+          </Text>
           <ChevronDown
-            size={20}
+            size={18}
             color={highlight ? "#fff" : "#6b7280"}
             style={{
-              transform: [{ rotate: isExpanded ? "0deg" : "-90deg" }],
+              transform: [
+                { rotate: expandedGroups[key] ? "0deg" : "-90deg" },
+              ],
             }}
           />
         </TouchableOpacity>
 
-        {isExpanded && (
-          <View style={styles.groupContent}>
-            {items.map((method) => renderMethodCard(method, highlight))}
-          </View>
-        )}
+        {expandedGroups[key] &&
+          data.map((m) => renderMethodCard(m, highlight))}
       </View>
     );
   };
 
+  /** 🔥 XÁC NHẬN THANH TOÁN */
+  const handleConfirm = () => {
+    const selected = methods.find((m) => m.id === selectedMethod);
+    if (!selected) return;
+
+    if (selected.type === "momo") {
+      navigation.navigate("MomoPayment", {
+        items: cartItems,
+        totalAmount: totalPrice,
+      });
+    }
+
+    if (selected.type === "bank") {
+      navigation.navigate("BankQrPayment", {
+        items: cartItems,
+        totalAmount: totalPrice,
+      });
+    }
+
+    if (selected.type === "cod") {
+      navigation.navigate("OrderSuccess", {
+        paymentMethod: "cod",
+      });
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>←</Text>
+        <TouchableOpacity onPress={onBack}>
+          <Text style={styles.back}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Phương thức thanh toán</Text>
-        <View style={styles.placeholder} />
+        <Text style={styles.title}>Phương thức thanh toán</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Search size={18} color="#9ca3af" style={styles.searchIcon} />
+      {/* SEARCH */}
+      <View style={styles.searchBox}>
+        <Search size={16} color="#9ca3af" />
         <TextInput
-          style={styles.searchInput}
-          placeholder="Tìm kiếm phương thức..."
-          placeholderTextColor="#9ca3af"
-          value={searchText}
-          onChangeText={setSearchText}
+          placeholder="Tìm phương thức..."
+          style={{ flex: 1, marginLeft: 8 }}
         />
       </View>
 
-      {/* Methods List */}
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 20 }}
-      >
-        {/* Recommended - Highlighted */}
-        {recommendedMethods.length > 0 &&
-          renderGroup(
-            "💡 Được đề xuất",
-            recommendedMethods,
-            "recommended",
-            true
-          )}
-
-        {/* Card Methods */}
-        {cardMethods.length > 0 &&
-          cardMethods.filter((m) => !m.isDefault).length > 0 &&
-          renderGroup("Thẻ tín dụng", cardMethods, "card", false)}
-
-        {/* Digital Payment */}
-        {digitalMethods.length > 0 &&
-          renderGroup("Ví & Ngân hàng", digitalMethods, "digital", false)}
-
-        {/* Other Methods */}
-        {otherMethods.length > 0 &&
-          renderGroup("Phương thức khác", otherMethods, "other", false)}
+      {/* LIST */}
+      <ScrollView style={{ padding: 16 }}>
+        {renderGroup("Đề xuất", recommendedMethods, "recommended", true)}
+        {renderGroup("Thẻ", cardMethods, "card")}
+        {renderGroup("Ví & Ngân hàng", digitalMethods, "digital")}
+        {renderGroup("Khác", otherMethods, "other")}
       </ScrollView>
 
-      {/* Footer */}
+      {/* FOOTER */}
       <View style={styles.footer}>
-        <TouchableOpacity onPress={onBack} style={styles.cancelBtn}>
-          <Text style={styles.cancelBtnText}>Đóng lại</Text>
+        <TouchableOpacity style={styles.cancelBtn} onPress={onBack}>
+          <Text>Đóng</Text>
         </TouchableOpacity>
+
         <TouchableOpacity
-          onPress={() => {
-            const selected = methods.find((m) => m.id === selectedMethod);
-            if (selected) onSelectMethod(selected);
-          }}
-          disabled={!selectedMethod}
           style={[
             styles.confirmBtn,
-            !selectedMethod && styles.confirmBtnDisabled,
+            !selectedMethod && { backgroundColor: "#fca5a5" },
           ]}
+          disabled={!selectedMethod}
+          onPress={handleConfirm}
         >
-          <Text style={styles.confirmBtnText}>Xác nhận</Text>
+          <Text style={{ color: "#fff", fontWeight: "600" }}>
+            Xác nhận
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-  },
+  container: { flex: 1, backgroundColor: "#f9fafb" },
+
   header: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    padding: 16,
     backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
   },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  backBtnText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  placeholder: {
-    width: 36,
-  },
-  searchContainer: {
+
+  back: { fontSize: 18 },
+  title: { fontWeight: "600", fontSize: 16 },
+
+  searchBox: {
     flexDirection: "row",
     alignItems: "center",
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 12,
+    margin: 16,
+    padding: 10,
     backgroundColor: "#fff",
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
   },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#111827",
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  group: {
-    marginBottom: 16,
-  },
+
   groupHeader: {
+    padding: 12,
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: "#f3f4f6",
-    borderRadius: 10,
-    marginBottom: 8,
   },
+
   groupHeaderHighlight: {
     backgroundColor: "#3b82f6",
   },
-  groupTitleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+
   groupTitle: {
-    fontSize: 13,
     fontWeight: "600",
-    color: "#6b7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
+    color: "#374151",
   },
-  groupTitleHighlight: {
-    color: "#fff",
-  },
-  groupCount: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#9ca3af",
-    backgroundColor: "#e5e7eb",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  groupCountHighlight: {
-    color: "#fff",
-    backgroundColor: "rgba(255,255,255,0.2)",
-  },
-  groupContent: {
-    gap: 10,
-  },
+
   methodCard: {
     backgroundColor: "#fff",
-    borderRadius: 12,
     padding: 12,
-    borderWidth: 1.5,
+    borderRadius: 10,
+    marginTop: 8,
+    borderWidth: 1,
     borderColor: "#e5e7eb",
-    marginBottom: 2,
   },
+
   methodCardHighlight: {
     borderColor: "#3b82f6",
-    backgroundColor: "#f0f9ff",
   },
+
   methodCardSelected: {
     borderColor: "#ef4444",
     backgroundColor: "#fef2f2",
   },
-  methodCardContent: {
+
+  methodRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  methodLeft: {
-    flexDirection: "row",
-    flex: 1,
+    alignItems: "center",
     gap: 10,
   },
-  iconWrapper: {
-    width: 50,
-    height: 50,
+
+  icon: { fontSize: 24 },
+  methodName: { fontWeight: "600" },
+  methodSub: { fontSize: 12, color: "#6b7280" },
+
+  radio: {
+    width: 20,
+    height: 20,
     borderRadius: 10,
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  iconWrapperHighlight: {
-    backgroundColor: "#dbeafe",
-  },
-  cardIcon: {
-    fontSize: 28,
-  },
-  methodInfo: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 2,
-  },
-  methodName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-    flex: 1,
-  },
-  defaultLabel: {
-    backgroundColor: "#dcfce7",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 3,
-  },
-  defaultLabelText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#16a34a",
-  },
-  methodProvider: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginBottom: 2,
-  },
-  methodLast4: {
-    fontSize: 11,
-    color: "#9ca3af",
-  },
-  methodExpiry: {
-    fontSize: 11,
-    color: "#9ca3af",
-    marginTop: 2,
-  },
-  methodRight: {
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: 8,
-  },
-  badgesAndButtons: {
-    gap: 4,
-    alignItems: "flex-end",
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  actionButtons: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  actionBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  radioButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
     borderWidth: 2,
     borderColor: "#d1d5db",
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
   },
-  radioButtonSelected: {
-    borderColor: "#ef4444",
+
+  radioSelected: {
     backgroundColor: "#ef4444",
+    borderColor: "#ef4444",
   },
+
   footer: {
     flexDirection: "row",
+    padding: 16,
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 20,
     backgroundColor: "#fff",
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
   },
+
   cancelBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderWidth: 1.5,
-    borderColor: "#d1d5db",
+    padding: 14,
     borderRadius: 10,
-    justifyContent: "center",
+    borderWidth: 1,
     alignItems: "center",
-    backgroundColor: "#fff",
   },
-  cancelBtnText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#6b7280",
-  },
+
   confirmBtn: {
     flex: 1,
-    paddingVertical: 14,
+    padding: 14,
     borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
     backgroundColor: "#ef4444",
-  },
-  confirmBtnDisabled: {
-    backgroundColor: "#fca5a5",
-  },
-  confirmBtnText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#fff",
+    alignItems: "center",
   },
 });

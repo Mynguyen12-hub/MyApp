@@ -4,6 +4,16 @@ import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } fr
 import type { CartItem } from "../app/(tabs)/index";
 import { PromotionsModal, type Promotion } from "./PromotionsModal";
 
+interface CheckoutPayload {
+  items: CartItem[];
+  discountAmount: number;
+  freeShipping: boolean;
+  deliveryFee: number;
+  finalTotal: number;
+  percentPromo: Promotion | null;
+  freeshipPromo: Promotion | null;
+}
+
 interface CartDrawerProps {
   visible: boolean;
   onClose: () => void;
@@ -11,15 +21,7 @@ interface CartDrawerProps {
   onUpdateQuantity: (id: number, qty: number) => void;
   onRemoveItem: (id: number) => void;
   totalPrice: number;
-  onCheckout: (payload: {
-    items: CartItem[];
-    discountAmount: number;
-    freeShipping: boolean;
-    deliveryFee: number;
-    finalTotal: number;
-    percentPromo?: Promotion | null;
-    freeshipPromo?: Promotion | null;
-  }) => void; // thêm đây
+  onCheckout: (payload: CheckoutPayload) => void;
 }
 
 export function CartDrawer({
@@ -112,18 +114,28 @@ export function CartDrawer({
 
   const selectedSubtotal = getSelectedSubtotal();
 
-  const getDiscountAmount = () => {
-    let discount = 0;
-    if (selectedPercentPromo) {
-      const percentValue = parseInt(selectedPercentPromo.title.match(/\d+/)?.[0] || '0');
-      discount = (selectedSubtotal * percentValue) / 100;
-    }
-    return discount;
-  };
+const getDiscountAmount = () => {
+  if (!selectedPercentPromo) return 0;
 
-  const getDeliveryFee = () => {
-    return selectedFreeshipPromo ? 0 : 16500;
-  };
+  const percent = selectedPercentPromo.discountValue; // ví dụ 10
+  let discount = (selectedSubtotal * percent) / 100;
+
+  // áp maxDiscount nếu có
+  if (selectedPercentPromo.maxDiscount) {
+    discount = Math.min(discount, selectedPercentPromo.maxDiscount);
+  }
+
+  return Math.floor(discount);
+};
+
+const BASE_DELIVERY_FEE = 16500;
+
+const getDeliveryFee = () => {
+  if (!selectedFreeshipPromo) return BASE_DELIVERY_FEE;
+
+  const freeshipValue = selectedFreeshipPromo.discountValue || 0;
+  return Math.max(0, BASE_DELIVERY_FEE - freeshipValue);
+};
 
   const discountAmount = getDiscountAmount();
   const deliveryFee = getDeliveryFee();
@@ -136,8 +148,8 @@ export function CartDrawer({
 
   const getPromoDisplayText = () => {
     const promos = [];
-    if (selectedFreeshipPromo) promos.push(selectedFreeshipPromo.title);
-    if (selectedPercentPromo) promos.push(selectedPercentPromo.title);
+if (selectedFreeshipPromo) promos.push(selectedFreeshipPromo.code);
+if (selectedPercentPromo) promos.push(selectedPercentPromo.code);
     return promos.length > 0 ? promos.join(' + ') : 'Chọn khuyến mãi';
   };
   return (
@@ -310,14 +322,13 @@ export function CartDrawer({
         </View>
 
         {/* Promotions Modal */}
-        <PromotionsModal
-          visible={showPromotions}
-          onClose={() => setShowPromotions(false)}
-          onSelectPromotion={() => {}}
-          onConfirm={handleConfirmPromotion}
-          selectedFreeshipId={selectedFreeshipPromo?.id}
-          selectedPercentId={selectedPercentPromo?.id}
-        />
+      <PromotionsModal
+        visible={showPromotions}
+        onClose={() => setShowPromotions(false)}
+        onConfirm={handleConfirmPromotion}
+        selectedFreeshipId={selectedFreeshipPromo?.id}
+        selectedPercentId={selectedPercentPromo?.id}
+      />
 
         {/* Summary Modal */}
         <Modal visible={showSummary} animationType="fade" transparent>
@@ -367,7 +378,9 @@ export function CartDrawer({
                 {selectedFreeshipPromo && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Giảm giá vận chuyển</Text>
-                    <Text style={styles.discountText}>-16.500đ</Text>
+                    <Text style={styles.discountText}>
+                      -{selectedFreeshipPromo.discountValue.toLocaleString()}đ
+                    </Text>
                   </View>
                 )}
 
@@ -402,7 +415,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 35,
     marginTop: 20, 
     backgroundColor: '#fff',
     borderBottomWidth: 1,

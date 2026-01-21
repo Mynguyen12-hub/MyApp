@@ -441,9 +441,13 @@ app.get("/products", async (req, res) => {
     
     const products = [];
     productsSnapshot.forEach(doc => {
+      const data = doc.data();
+      // Ưu tiên image_url, fallback sang image (giữ tương thích)
       products.push({
         id: doc.id,
-        ...doc.data()
+        ...data,
+        image: data.image_url || data.image || null,
+        image_url: data.image_url || data.image || null
       });
     });
 
@@ -512,8 +516,14 @@ app.get("/search", async (req, res) => {
 
     // Filter by search query (client-side or using array-contains)
     snapshot.forEach(doc => {
-      const product = { id: doc.id, ...doc.data() };
-      
+      const data = doc.data();
+      const product = {
+        id: doc.id,
+        ...data,
+        image: data.image_url || data.image || null,
+        image_url: data.image_url || data.image || null
+      };
+
       // Search in name, description, and tags
       const searchText = query.toLowerCase();
       const matchesSearch = !query || 

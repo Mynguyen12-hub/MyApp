@@ -1,13 +1,25 @@
-import React, { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import {
-  View,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  getFirestore,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
+} from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import {
+  FlatList,
+  SafeAreaView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  SafeAreaView,
+  View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { app, auth } from '../config/firebaseConfig';
 
 interface Notification {
   id: string;
@@ -31,7 +43,6 @@ export function Notifications({
   onMarkRead,
   onClearAll,
 }: NotificationsProps) {
-  const [notificationList, setNotificationList] = useState<Notification[]>(notifications);
 
   const getIcon = (type: 'order' | 'promotion' | 'delivery') => {
     switch (type) {
@@ -46,17 +57,57 @@ export function Notifications({
     }
   };
 
-  const handleMarkRead = (id: string) => {
-    setNotificationList((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-    onMarkRead?.(id);
-  };
+const handleMarkRead = async (id: string) => {
+  if (!auth.currentUser) return;
 
-  const handleClearAll = () => {
-    setNotificationList([]);
-    onClearAll?.();
-  };
+  await updateDoc(
+    doc(db, 'notifications', auth.currentUser.uid, 'items', id),
+    { read: true }
+  );
+};
+
+const handleClearAll = async () => {
+  if (!auth.currentUser) return;
+
+  try {
+    const userId = auth.currentUser.uid;
+    const snap = await getDocs(
+      collection(db, 'notifications', userId, 'items')
+    );
+
+    await Promise.all(
+      snap.docs.map(d =>
+        deleteDoc(doc(db, 'notifications', userId, 'items', d.id))
+      )
+    );
+  } catch (e) {
+    console.error("Clear notifications error:", e);
+  }
+};
+const db = getFirestore(app);
+const [notificationList, setNotificationList] = useState<Notification[]>([]);
+
+useEffect(() => {
+  if (!auth.currentUser) return;
+
+  const q = query(
+    collection(db, 'notifications', auth.currentUser.uid, 'items'),
+    orderBy('createdAt', 'desc')
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const data: Notification[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...(doc.data() as Omit<Notification, 'id'>),
+      time: doc.data().createdAt?.toDate
+        ? doc.data().createdAt.toDate().toLocaleString()
+        : '',
+    }));
+    setNotificationList(data);
+  });
+
+  return unsubscribe;
+}, []);
 
   return (
     <SafeAreaView style={styles.container}>

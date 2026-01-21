@@ -1,28 +1,53 @@
-import React, { useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import {
-  View,
+  collection,
+  getFirestore,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Image,
+  View,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { useAuth } from "../app/context/AuthContext";
+import { app } from "../config/firebaseConfig";
+
+/* ================= TYPES ================= */
 
 export interface OrderItem {
   id: string;
   date: string;
-  items: Array<{ id: number; name: string; quantity: number; price: number; image?: any }>;
+  items: Array<{
+    id: number;
+    name: string;
+    quantity: number;
+    price: number;
+    imageUrl?: string;
+  }>;
   total: number;
   status: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
   trackingId?: string;
   shippingAddress?: string;
+  note?: string;
 }
 
 interface OrdersListProps {
-  orders: OrderItem[];
   onBack: () => void;
+status?: string | null;
 }
+
+/* ================= STATUS CONFIG ================= */
+const getStatusConfig = (status?: string) => {
+  return statusConfig[status ?? "pending"] ?? statusConfig["pending"];
+};
 
 const statusConfig: Record<
   string,
@@ -41,7 +66,7 @@ const statusConfig: Record<
     bgColor: "#dbeafe",
   },
   shipped: {
-    label: "Đã gửi",
+    label: "Chờ giao hàng",
     color: "#8b5cf6",
     icon: "send",
     bgColor: "#ede9fe",
@@ -60,41 +85,110 @@ const statusConfig: Record<
   },
 };
 
-export function OrdersList({ orders, onBack }: OrdersListProps) {
-  const [selectedOrder, setSelectedOrder] = useState<OrderItem | null>(null);
+/* ================= MAIN COMPONENT ================= */
 
+export function OrdersList({ onBack, status }: OrdersListProps) {
+  const [orders, setOrders] = useState<OrderItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState<OrderItem | null>(null);
+const filteredOrders = status
+  ? orders.filter((o) => o.status === status)
+  : orders;
+
+  /* ===== REALTIME FETCH FROM FIREBASE ===== */
+const { user } = useAuth();
+
+useEffect(() => {
+  if (!user?.uid) {
+    setLoading(false);
+    return;
+  }
+
+  const db = getFirestore(app);
+
+  const q = query(
+    collection(db, "orders"),
+    where("userId", "==", user.uid),
+    orderBy("createdAt", "desc")
+  );
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      const list: OrderItem[] = snapshot.docs.map((doc) => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          date: d.createdAt?.toDate?.().toLocaleString() ?? "",
+items: (d.items ?? []).map((item: any) => ({
+  ...item,
+  imageUrl: item.imageUrl || item.image_url || item.image || "",
+})),
+          total: d.total ?? 0,
+          note: d.note ?? "",
+          status: d.status ?? "pending",
+          shippingAddress: d.address
+            ? `${d.address.street}, ${d.address.city}`
+            : "",
+        };
+      });
+
+      setOrders(list);
+      setLoading(false);
+    },
+    (error) => {
+      console.log("❌ Lỗi lấy đơn:", error);
+      setLoading(false);
+    }
+  );
+
+  return () => unsubscribe();
+}, [user?.uid]);
+
+  /* ===== LOADING ===== */
+  if (loading) {
+    return (
+      <View style={styles.emptyContainer}>
+        <ActivityIndicator size="large" color="#e91e63" />
+        <Text style={{ marginTop: 10, color: "#999" }}>
+          Đang tải đơn hàng...
+        </Text>
+      </View>
+    );
+  }
+
+  /* ================= DETAIL VIEW ================= */
   if (selectedOrder) {
     return (
       <View style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setSelectedOrder(null)} style={styles.backBtn}>
+          <TouchableOpacity
+            onPress={() => setSelectedOrder(null)}
+            style={styles.backBtn}
+          >
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Chi tiết đơn hàng</Text>
           <View style={{ width: 24 }} />
         </View>
-
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Order Info Card */}
-          <View style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Mã đơn hàng</Text>
-              <Text style={styles.infoValue}>{selectedOrder.id}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Ngày đặt</Text>
-              <Text style={styles.infoValue}>{selectedOrder.date}</Text>
-            </View>
+        <ScrollView style={styles.content}>
+          {/* Thông tin chung */}
+          <View style={[styles.infoCard, {marginBottom: 12}]}> 
+            <Text style={{fontWeight:'700', fontSize:16, marginBottom:4}}>Mã đơn: <Text style={{color:'#e91e63'}}>{selectedOrder.id}</Text></Text>
+            <Text>Ngày đặt: <Text style={{color:'#3b82f6'}}>{selectedOrder.date}</Text></Text>
             {selectedOrder.trackingId && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Mã vận đơn</Text>
-                <Text style={styles.infoValue}>{selectedOrder.trackingId}</Text>
-              </View>
+              <Text>Mã vận đơn: <Text style={{color:'#8b5cf6'}}>{selectedOrder.trackingId}</Text></Text>
             )}
+            <Text>Trạng thái: <Text style={{color: statusConfig[selectedOrder.status].color}}>{statusConfig[selectedOrder.status].label}</Text></Text>
           </View>
-
-          {/* Status Badge */}
+          {/* Địa chỉ giao hàng */}
+          {selectedOrder.shippingAddress && (
+            <View style={[styles.infoCard, {marginBottom: 12, flexDirection:'row', alignItems:'center'}]}>
+              <Ionicons name="location" size={20} color="#3b82f6" style={{marginRight:8}} />
+              <Text style={{flex:1}}>Địa chỉ giao: <Text style={{color:'#52525b'}}>{selectedOrder.shippingAddress}</Text></Text>
+            </View>
+          )}
+          {/* Trạng thái badge */}
           <View
             style={[
               styles.statusBadge,
@@ -106,97 +200,63 @@ export function OrdersList({ orders, onBack }: OrdersListProps) {
               size={20}
               color={statusConfig[selectedOrder.status].color}
             />
-            <Text
-              style={[
-                styles.statusLabel,
-                { color: statusConfig[selectedOrder.status].color },
-              ]}
-            >
+            <Text style={{ color: statusConfig[selectedOrder.status].color, fontWeight:'700' }}>
               {statusConfig[selectedOrder.status].label}
             </Text>
           </View>
-
-          {/* Timeline */}
-          {selectedOrder.status !== "cancelled" && (
-            <View style={styles.timelineContainer}>
-              <Text style={styles.timelineTitle}>Quá trình giao hàng</Text>
-              <View style={styles.timeline}>
-                <TimelineStep
-                  icon="checkmark-circle"
-                  label="Đã xác nhận"
-                  completed={true}
-                  time="2 giờ trước"
-                />
-                <TimelineStep
-                  icon="cube"
-                  label="Đang chuẩn bị"
-                  completed={selectedOrder.status !== "pending"}
-                  time={selectedOrder.status !== "pending" ? "1 giờ trước" : "---"}
-                />
-                <TimelineStep
-                  icon="send"
-                  label="Đã gửi"
-                  completed={["shipped", "delivered"].includes(selectedOrder.status)}
-                  time={["shipped", "delivered"].includes(selectedOrder.status) ? "vừa rồi" : "---"}
-                />
-                <TimelineStep
-                  icon="checkmark-circle"
-                  label="Đã giao"
-                  completed={selectedOrder.status === "delivered"}
-                  time={selectedOrder.status === "delivered" ? "vừa rồi" : "---"}
-                />
-              </View>
-            </View>
-          )}
-
-          {/* Items */}
-          <View style={styles.itemsCard}>
-            <Text style={styles.itemsTitle}>Sản phẩm</Text>
-            {selectedOrder.items.map((item) => (
-              <View key={item.id} style={styles.itemRow}>
-                {item.image && (
-                  <Image
-                    source={item.image}
-                    style={styles.itemImage}
-                  />
-                )}
-                <View style={styles.itemInfo}>
-                  <Text style={styles.itemName}>{item.name}</Text>
-                  <Text style={styles.itemQty}>x{item.quantity}</Text>
+          {/* Danh sách sản phẩm */}
+          <View style={[styles.itemsCard, {marginBottom:12}]}> 
+            <Text style={{fontWeight:'700', fontSize:15, marginBottom:8}}>Sản phẩm</Text>
+            {selectedOrder.items.map((item, idx) => (
+              <View key={`${item.id}-${idx}`} style={[styles.itemRow, {alignItems:'center', marginBottom:idx===selectedOrder.items.length-1?0:10}]}> 
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.itemImage} />
+              ) : (
+                <View
+                  style={[
+                    styles.itemImage,
+                    {
+                      backgroundColor: "#eee",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    },
+                  ]}
+                >
+                  <Ionicons name="image" size={20} color="#bbb" />
                 </View>
-                <Text style={styles.itemPrice}>₫ {(item.price * item.quantity).toLocaleString()}</Text>
+              )}
+                <View style={{flex:1, marginLeft:8}}>
+                  <Text style={{fontWeight:'600'}}>{item.name}</Text>
+                  <Text style={{color:'#666'}}>Số lượng: {item.quantity}</Text>
+                </View>
+                <Text style={{fontWeight:'600', color:'#e91e63'}}>₫ {(item.price * item.quantity).toLocaleString()}</Text>
               </View>
             ))}
           </View>
-
-          {/* Address */}
-          {selectedOrder.shippingAddress && (
-            <View style={styles.addressCard}>
-              <View style={styles.addressHeader}>
-                <Ionicons name="location" size={18} color="#e91e63" />
-                <Text style={styles.addressTitle}>Địa chỉ giao hàng</Text>
-              </View>
-              <Text style={styles.addressText}>{selectedOrder.shippingAddress}</Text>
-            </View>
-          )}
-
-          {/* Total */}
-          <View style={styles.totalCard}>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Tổng cộng</Text>
-              <Text style={styles.totalValue}>₫ {selectedOrder.total.toLocaleString()}</Text>
-            </View>
+          {/* Tổng tiền */}
+          <View style={[styles.totalCard, {marginBottom:12, flexDirection:'row', justifyContent:'space-between', alignItems:'center'}]}>
+            <Text style={{fontWeight:'700', fontSize:16}}>Tổng cộng</Text>
+            <Text style={styles.totalValue}>₫ {selectedOrder.total.toLocaleString()}</Text>
           </View>
-
-          <View style={{ height: 30 }} />
+          {/* Thông tin bổ sung */}
+          <View style={[styles.infoCard, {marginBottom:24}]}> 
+            <Text>Phương thức thanh toán: <Text style={{color:'#3b82f6'}}>Tiền mặt khi nhận hàng</Text></Text>
+          <Text>
+            Ghi chú:{" "}
+            <Text style={{ color: "#52525b" }}>
+              {selectedOrder.note?.trim() || "Không có"}
+            </Text>
+          </Text>
+                    </View>
         </ScrollView>
       </View>
     );
   }
 
+  /* ================= LIST VIEW ================= */
+
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#333" />
@@ -204,272 +264,73 @@ export function OrdersList({ orders, onBack }: OrdersListProps) {
         <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
         <View style={{ width: 24 }} />
       </View>
-
-      {orders.length > 0 ? (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {orders.map((order) => (
-            <TouchableOpacity
-              key={order.id}
-              onPress={() => setSelectedOrder(order)}
-              style={styles.orderCard}
-            >
-              <View style={styles.orderHeader}>
-                <View>
-                  <Text style={styles.orderId}>Đơn #{order.id}</Text>
-                  <Text style={styles.orderDate}>{order.date}</Text>
-                </View>
-                <View
-                  style={[
-                    styles.statusChip,
-                    { backgroundColor: statusConfig[order.status].bgColor },
-                  ]}
-                >
-                  <Ionicons
-                    name={statusConfig[order.status].icon as any}
-                    size={16}
-                    color={statusConfig[order.status].color}
-                    style={{ marginRight: 4 }}
-                  />
-                  <Text
-                    style={[
-                      styles.statusChipText,
-                      { color: statusConfig[order.status].color },
-                    ]}
-                  >
-                    {statusConfig[order.status].label}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.orderItems}>
-                <Text style={styles.itemsLabel}>
-                  {order.items.length} sản phẩm
-                </Text>
-              </View>
-
-              <View style={styles.orderFooter}>
-                <Text style={styles.orderTotal}>₫ {order.total.toLocaleString()}</Text>
-                <Ionicons name="chevron-forward" size={18} color="#e91e63" />
-              </View>
-            </TouchableOpacity>
-          ))}
-
-          <View style={{ height: 30 }} />
-        </ScrollView>
-      ) : (
+      {filteredOrders.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={64} color="#ddd" />
           <Text style={styles.emptyText}>Chưa có đơn hàng nào</Text>
         </View>
+      ) : (
+        <ScrollView style={styles.content}>
+          {filteredOrders.map((order) => (
+            <TouchableOpacity
+              key={order.id}
+              style={[styles.orderCard, {borderLeftWidth:4, borderLeftColor: getStatusConfig(order.status).color, shadowColor: getStatusConfig(order.status).color, shadowOpacity:0.08, shadowRadius:8}]}
+              onPress={() => setSelectedOrder(order)}
+              activeOpacity={0.85}
+            >
+              <View style={{flexDirection:'row', alignItems:'center', marginBottom:6}}>
+                <Ionicons name={getStatusConfig(order.status).icon as any} size={20} color={getStatusConfig(order.status).color} style={{marginRight:8}} />
+                <Text style={{fontWeight:'700', fontSize:15, flex:1}}>Đơn #{order.id}</Text>
+                <Text style={{color: getStatusConfig(order.status).color, fontWeight:'600'}}>{getStatusConfig(order.status).label}</Text>
+              </View>
+              <Text style={{color:'#666', marginBottom:2}}>Ngày đặt: {order.date}</Text>
+              {order.shippingAddress && <Text style={{color:'#666', marginBottom:2}}>Địa chỉ: {order.shippingAddress}</Text>}
+              <Text style={{color:'#666', marginBottom:2}}>Số sản phẩm: {order.items.length}</Text>
+              <Text style={styles.orderTotal}>Tổng: ₫ {order.total.toLocaleString()}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       )}
     </View>
   );
 }
 
-function TimelineStep({
-  icon,
-  label,
-  completed,
-  time,
-}: {
-  icon: string;
-  label: string;
-  completed: boolean;
-  time: string;
-}) {
-  return (
-    <View style={styles.timelineStep}>
-      <View
-        style={[
-          styles.stepCircle,
-          completed && { backgroundColor: "#10b981" },
-        ]}
-      >
-        <Ionicons
-          name={icon as any}
-          size={18}
-          color={completed ? "#fff" : "#ccc"}
-        />
-      </View>
-      <View style={styles.stepContent}>
-        <Text style={[styles.stepLabel, completed && { color: "#333" }]}>
-          {label}
-        </Text>
-        <Text style={styles.stepTime}>{time}</Text>
-      </View>
-    </View>
-  );
-}
+/* ================= STYLES ================= */
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    padding: 16,
     backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
     marginTop: 22,
   },
   backBtn: { padding: 8 },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: "#333" },
-  content: { flex: 1, paddingVertical: 12, paddingHorizontal: 16 },
-
-  // Order Card
+  headerTitle: { fontSize: 18, fontWeight: "700" },
+  content: { padding: 16 },
   orderCard: {
     backgroundColor: "#fff",
-    borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-  },
-  orderHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 12,
-  },
-  orderId: { fontSize: 16, fontWeight: "700", color: "#333" },
-  orderDate: { fontSize: 12, color: "#999", marginTop: 4 },
-  statusChip: {
-    flexDirection: "row",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  statusChipText: { fontSize: 12, fontWeight: "600" },
-  orderItems: { marginBottom: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#f0f0f0", borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
-  itemsLabel: { fontSize: 12, color: "#666" },
-  orderFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  orderTotal: { fontSize: 16, fontWeight: "700", color: "#e91e63" },
-
-  // Detail View
-  infoCard: {
-    backgroundColor: "#fff",
     borderRadius: 12,
-    padding: 16,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
   },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f5f5f5",
-  },
-  infoLabel: { fontSize: 14, color: "#666" },
-  infoValue: { fontSize: 14, fontWeight: "600", color: "#333" },
-
+  orderId: { fontWeight: "700" },
+  orderTotal: { color: "#e91e63", marginTop: 6 },
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  emptyText: { marginTop: 12, color: "#999" },
+  infoCard: { backgroundColor: "#fff", padding: 16, borderRadius: 12 },
   statusBadge: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 12,
     gap: 8,
-  },
-  statusLabel: { fontSize: 14, fontWeight: "600" },
-
-  timelineContainer: { marginBottom: 12 },
-  timelineTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 12,
-  },
-  timeline: {
-    backgroundColor: "#fff",
+    padding: 12,
     borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-  },
-  timelineStep: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 16,
-  },
-  stepCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f0f0f0",
-    alignItems: "center",
+    marginVertical: 12,
     justifyContent: "center",
-    marginRight: 12,
   },
-  stepContent: { flex: 1 },
-  stepLabel: { fontSize: 13, fontWeight: "600", color: "#999" },
-  stepTime: { fontSize: 12, color: "#ccc", marginTop: 2 },
-
-  itemsCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-  },
-  itemsTitle: { fontSize: 14, fontWeight: "700", color: "#333", marginBottom: 12 },
-  itemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  itemImage: { width: 50, height: 50, borderRadius: 8, marginRight: 12, backgroundColor: "#f0f0f0" },
-  itemInfo: { flex: 1 },
-  itemName: { fontSize: 13, fontWeight: "600", color: "#333" },
-  itemQty: { fontSize: 12, color: "#999", marginTop: 2 },
-  itemPrice: { fontSize: 13, fontWeight: "700", color: "#333" },
-
-  addressCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-  },
-  addressHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  addressTitle: { fontSize: 14, fontWeight: "700", color: "#333", marginLeft: 8 },
-  addressText: { fontSize: 13, color: "#666", lineHeight: 20 },
-
-  totalCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
-  },
-  totalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  totalLabel: { fontSize: 14, fontWeight: "700", color: "#333" },
+  itemsCard: { backgroundColor: "#fff", padding: 16, borderRadius: 12 },
+  itemRow: { flexDirection: "row", marginBottom: 8 },
+  itemImage: { width: 40, height: 40, marginRight: 8 },
+  totalCard: { backgroundColor: "#fff", padding: 16, borderRadius: 12 },
   totalValue: { fontSize: 18, fontWeight: "700", color: "#e91e63" },
-
-  // Empty State
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  emptyText: { fontSize: 16, color: "#999", marginTop: 16 },
 });

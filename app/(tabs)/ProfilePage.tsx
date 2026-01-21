@@ -1,13 +1,12 @@
 // ProfileScreen.tsx
-import React, { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { AddressManagement } from "../../components/Address";
+import React, { useState } from "react";
+import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { AddressManagement, useAddresses } from "../../components/Address";
 import { Notifications } from "../../components/Notifications";
+import { OrderItem, OrdersList } from "../../components/OrdersList";
 import { ProfileEdit } from "../../components/ProfileEdit";
-import { OrdersList, OrderItem } from "../../components/OrdersList";
 import { UserInfo } from '../context/AuthContext';
-import { Address } from '../../data/addressData';
 
 interface ProfileProps {
   onOrdersClick: () => void;
@@ -21,12 +20,17 @@ interface ProfileProps {
   unreadCount: number;
   onLogout: () => void;
   user: UserInfo | null;
-  addresses: Address[];
-  onAddressesChange: (addresses: Address[]) => void;
   orders: OrderItem[];
   openNotifications?: boolean;
   onNotificationsHandled?: () => void;
-  incomingNotification?: { id: string; type: string; title: string; message: string; time: string; read?: boolean } | null;
+  incomingNotification?: {
+    id: string;
+    type: string;
+    title: string;
+    message: string;
+    time: string;
+    read?: boolean;
+  } | null;
   onIncomingHandled?: () => void;
 }
 
@@ -40,8 +44,6 @@ export function ProfilePage({
   unreadCount,
   onLogout,
   user,
-  addresses: initialAddresses,
-  onAddressesChange,
   orders,
   onOpenChat,
   onOpenCart,
@@ -50,12 +52,20 @@ export function ProfilePage({
   incomingNotification,
   onIncomingHandled,
 }: ProfileProps) {
+const {
+  addresses,
+  addAddress,
+  removeAddress,
+  setAddresses,
+} = useAddresses();
+
+  // All hooks at the top
   const [showAddresses, setShowAddresses] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
-  const [addresses, setAddresses] = useState<Address[]>(initialAddresses);
   const [userInfo, setUserInfo] = useState(user);
+  const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
 
   const [notifications, setNotifications] = useState([
     {
@@ -102,6 +112,7 @@ export function ProfilePage({
     }
   }, [incomingNotification]);
 
+  // Only render after all hooks
   if (showNotifications) {
     return (
       <Notifications
@@ -121,47 +132,13 @@ export function ProfilePage({
 
   if (showAddresses) {
     return (
-      <AddressManagement
-        addresses={addresses}
-        onBack={() => setShowAddresses(false)}
-        onSelectAddress={(address) => {
-          setAddresses((prev) => {
-            const exists = prev.some((a) => a.id === address.id);
-            if (exists) return prev.map((a) => (a.id === address.id ? address : a));
-            return [...prev, address];
-          });
-          setShowAddresses(false);
-        }}
-        onAddAddress={(address) => {
-          if (address) {
-            setAddresses((prev) => {
-              const exists = prev.some((a) => a.id === address.id);
-              if (exists) return prev.map((a) => (a.id === address.id ? address : a));
-              return [...prev, address];
-            });
-            setShowAddresses(false);
-            return;
-          }
-          const newAddr: Address = {
-            id: Date.now().toString(),
-            name: 'New Address',
-            street: 'Street name',
-            city: 'City',
-            state: '',
-            zip: '',
-            phone: '',
-          };
-          setAddresses((prev) => [...prev, newAddr]);
-          setShowAddresses(false);
-        }}
-        onRemoveAddress={(id) => {
-          setAddresses((prev) => {
-            const filtered = prev.filter((a) => a.id !== id);
-            return filtered;
-          });
-          setTimeout(() => setShowAddresses(false), 300);
-        }}
-      />
+<AddressManagement
+  addresses={addresses}
+  onBack={() => setShowAddresses(false)}
+  onSelectAddress={(addr) => console.log("selected", addr)}
+  onAddAddress={addAddress}
+  onRemoveAddress={removeAddress}
+/>
     );
   }
 
@@ -198,7 +175,6 @@ export function ProfilePage({
       color: '#8b5cf6', 
       onPress: () => setShowProfileEdit(true)
     },
-    
     { 
       icon: "help-circle", 
       label: 'Help & Support', 
@@ -214,15 +190,22 @@ export function ProfilePage({
   ];
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
       {/* Header / Profile Card */}
       <View style={styles.header}>
 
         <View style={styles.profileCard}>
           <View style={styles.profileInfo}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>👤</Text>
-            </View>
+<View style={styles.avatar}>
+  {userInfo?.avatar ? (
+    <Image
+      source={{ uri: userInfo.avatar }}
+      style={styles.avatarImage}
+    />
+  ) : (
+    <Text style={styles.avatarText}>👤</Text>
+  )}
+</View>
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{user?.name || 'Chưa đăng nhập'}</Text>
               <Text style={styles.email}>{user?.email || ''}</Text>
@@ -270,7 +253,7 @@ export function ProfilePage({
         </View>
       </View>
 
-      {/* Order Status Row (Chờ xác nhận, Chờ lấy hàng, Đang giao, Đã giao) */}
+      {/* Order Status Row (Chờ xác nhận, Chờ lấy hàng, Đang giao, Đã giao, Đã huỷ) */}
       <View style={styles.orderStatusContainer}>
         {(() => {
           const sCount = (key: string) => {
@@ -284,11 +267,19 @@ export function ProfilePage({
           const statuses = [
             { key: 'pending', label: 'Chờ xác nhận' },
             { key: 'processing', label: 'Chờ lấy hàng' },
-            { key: 'shipping', label: 'Đang giao' },
+            { key: 'shipped', label: 'Chờ giao hàng' },
             { key: 'delivered', label: 'Đã giao' },
+            { key: 'cancelled', label: 'Đã huỷ' },
           ];
-          return statuses.map((st) => (
-            <TouchableOpacity key={st.key} style={styles.statusItem} onPress={() => setShowOrders(true)}>
+return statuses.map((st) => (
+  <TouchableOpacity
+    key={st.key}
+    style={styles.statusItem}
+    onPress={() => {
+      setSelectedStatus(st.key); // ✅ QUAN TRỌNG
+      setShowOrders(true);
+    }}
+  >
               <View style={styles.statusCountWrapper}>
                 <Text style={styles.statusCount}>{sCount(st.key)}</Text>
               </View>
@@ -355,16 +346,23 @@ export function ProfilePage({
       </Modal>
 
       {/* Orders List Modal */}
-      <Modal
-        visible={showOrders}
-        animationType="slide"
-        transparent={false}
-      >
-        <OrdersList
-          orders={orders}
-          onBack={() => setShowOrders(false)}
-        />
-      </Modal>
+<Modal
+  visible={showOrders}
+  animationType="slide"
+  transparent={false}
+  onRequestClose={() => {
+    setShowOrders(false);
+    setSelectedStatus(null);
+  }}
+>
+  <OrdersList
+    status={selectedStatus}     // 👈 TRUYỀN XUỐNG
+    onBack={() => {
+      setShowOrders(false);
+      setSelectedStatus(null);  // 👈 RESET
+    }}
+  />
+</Modal>
     </ScrollView>
   );
 }
@@ -394,6 +392,12 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16
   },
+  avatarImage: {
+  width: 64,
+  height: 64,
+  borderRadius: 32,
+},
+
   rewardsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   rewardsText: { fontSize: 14, opacity: 0.9, color: '#fff' },
   rewardsValue: { fontSize: 28, fontWeight: '700', color: '#fff', marginBottom: 4 },
@@ -409,7 +413,7 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center', marginLeft: 12 },
   actionBtn: { marginLeft: 8, backgroundColor: '#ff6b81', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   orderStatusContainer: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 12 },
-  statusItem: { alignItems: 'center', flex: 1, paddingVertical: 10 },
+  statusItem: { alignItems: 'center', flex: 1, paddingVertical: 14 },
   statusCountWrapper: { backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6, minWidth: 36, alignItems: 'center' },
   statusCount: { fontSize: 16, fontWeight: '700', color: '#ff6b81' },
   statusLabel: { fontSize: 12, color: '#52525b', textAlign: 'center' },

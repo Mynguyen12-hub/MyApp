@@ -13,6 +13,7 @@ interface ProductDetailProps {
   onViewProduct?: (product: any) => void;
   onBuyNow?: (product: any, quantity: number) => void;
   canReview?: boolean;
+  orderId?: string; 
 }
 
 export default function ProductDetail({
@@ -24,7 +25,8 @@ export default function ProductDetail({
   allProducts = [],
   onViewProduct,
   onBuyNow,
-  canReview = false,
+canReview = false,
+  orderId
 }: ProductDetailProps) {
   
   const [quantity, setQuantity] = useState(1);
@@ -48,66 +50,106 @@ export default function ProductDetail({
     fetchReviews();
   }, [current]);
 
-  const fetchReviews = async () => {
-    try {
-      const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
-      const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/reviews?key=${key}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const docs = json.documents || [];
-      const list = docs.map((doc: any) => {
+const fetchReviews = async () => {
+  try {
+    const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
+    const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/reviews?key=${key}`;
+
+    const res = await fetch(url);
+    const json = await res.json();
+    const docs = json.documents || [];
+
+    const list = docs
+      .map((doc: any) => {
         const f = doc.fields || {};
         return {
           id: doc.name?.split('/').pop(),
-          productId: f.productId?.integerValue ? Number(f.productId.integerValue) : (f.productId?.stringValue ? Number(f.productId.stringValue) : null),
-          rating: f.rating?.integerValue ? Number(f.rating.integerValue) : (f.rating?.stringValue ? Number(f.rating.stringValue) : 0),
+          productId:
+            f.productId?.integerValue ??
+            f.productId?.stringValue ??
+            null,
+          rating: Number(
+            f.rating?.integerValue ??
+            f.rating?.stringValue ??
+            0
+          ),
           comment: f.comment?.stringValue || '',
-          userId: f.userId?.stringValue || null,
-          created_at: f.created_at?.timestampValue || null,
+          userId: f.userId?.stringValue || 'Ẩn danh',
+          createdAt: f.created_at?.timestampValue || null,
         };
-      }).filter((r:any) => r.productId === Number(current.id));
-      setReviews(list);
-      if (list.length) {
-        const avg = list.reduce((s:any, r:any) => s + (r.rating || 0), 0) / list.length;
-        setAvgRating(Math.round(avg * 10) / 10);
-      } else {
-        setAvgRating(null);
-      }
-    } catch (e) {
-      console.warn('Fetch reviews failed', e);
-    }
-  };
+      })
+      .filter(
+        (r: any) => String(r.productId) === String(current.id)
+      );
 
-  const submitReview = async () => {
-    if (!current) return;
-    if (!canReview) {
-      Alert.alert('Không thể đánh giá', 'Bạn chỉ có thể đánh giá khi đã nhận hàng.');
-      return;
+    setReviews(list);
+
+    if (list.length > 0) {
+      const avg =
+        list.reduce((sum: number, r: any) => sum + r.rating, 0) /
+        list.length;
+      setAvgRating(Math.round(avg * 10) / 10);
+    } else {
+      setAvgRating(null);
     }
-    try {
-      const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
-      const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/reviews?key=${key}`;
-      const body = {
-        fields: {
-          productId: { integerValue: String(current.id) },
-          rating: { integerValue: String(reviewRating) },
-          comment: { stringValue: reviewComment },
-          userId: { stringValue: user?.email || user?.name || 'guest' },
-          created_at: { timestampValue: new Date().toISOString() },
-        }
-      };
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setReviewModalOpen(false);
-      setReviewComment('');
-      setReviewRating(5);
-      fetchReviews();
-    } catch (e) {
-      console.error('Submit review failed', e);
-      Alert.alert('Lỗi', 'Gửi đánh giá thất bại.');
-    }
-  };
+  } catch (e) {
+    console.warn('Fetch reviews failed', e);
+  }
+};
+const RenderStars = ({ value, size = 14 }: { value: number; size?: number }) => (
+  <View style={{ flexDirection: 'row' }}>
+    {[1, 2, 3, 4, 5].map((i) => (
+      <Star
+        key={i}
+        size={size}
+        color={i <= value ? '#facc15' : '#ddd'}
+        fill={i <= value ? '#facc15' : 'none'}
+      />
+    ))}
+  </View>
+);
+
+const submitReview = async () => {
+  if (!canReview || !orderId) {
+    Alert.alert(
+      "Không thể đánh giá",
+      "Bạn chỉ có thể đánh giá sau khi đơn hàng đã giao."
+    );
+    return;
+  }
+
+  try {
+    const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
+    const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/reviews?key=${key}`;
+
+    const body = {
+      fields: {
+        productId: { stringValue: String(current.id) },
+        orderId: { stringValue: orderId },
+        rating: { integerValue: String(reviewRating) },
+        comment: { stringValue: reviewComment },
+        userId: { stringValue: user?.email || "guest" },
+        created_at: { timestampValue: new Date().toISOString() },
+      },
+    };
+
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    Alert.alert("Thành công", "Cảm ơn bạn đã đánh giá!");
+
+    setReviewModalOpen(false);
+    setReviewComment("");
+    setReviewRating(5);
+
+    fetchReviews(); // reload list
+  } catch (e) {
+    Alert.alert("Lỗi", "Không thể gửi đánh giá");
+  }
+};
 
   useEffect(() => {
     const buildRelated = async () => {
@@ -168,7 +210,7 @@ export default function ProductDetail({
           <ArrowLeft color="#e11d48" size={22} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => onToggleWishlist(product.id)} style={styles.iconBtn}>
+        <TouchableOpacity onPress={() => onToggleWishlist(Number(product.id))} style={styles.iconBtn}>
           <Heart
             size={22}
             color={isWishlisted ? "red" : "#e11d48"}
@@ -183,19 +225,22 @@ export default function ProductDetail({
 
         {/* Info */}
         <View style={{ padding: 16 }}>
-          <Text style={styles.name}>{product.name}</Text>
+          <Text style={styles.name}>{current?.name}</Text>
 
-          <View style={styles.row}>
-            <Star size={16} color="#facc15" />
-            <Text style={styles.rating}>{avgRating ? `${avgRating} · ${reviews.length} đánh giá` : 'Chưa có đánh giá'}</Text>
-            {canReview && (
-              <TouchableOpacity onPress={() => setReviewModalOpen(true)} style={{ marginLeft: 12 }}>
-                <Text style={{ color: '#e11d48', fontWeight: '600' }}>Viết đánh giá</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+<View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+  {avgRating ? (
+    <>
+      <RenderStars value={Math.round(avgRating)} size={16} />
+      <Text style={styles.rating}>
+        {avgRating} · {reviews.length} đánh giá
+      </Text>
+    </>
+  ) : (
+    <Text style={styles.rating}>Chưa có đánh giá</Text>
+  )}
+</View>
 
-          <Text style={styles.price}>{product.price.toLocaleString()}₫</Text>
+          <Text style={styles.price}>{(current?.price ?? 0).toLocaleString()}₫</Text>
 
           <Text style={styles.desc}>
             {current?.description || current?.desc || 'Hoa tươi mới, được tuyển chọn kỹ càng. Phù hợp cho mọi dịp đặc biệt.'}
@@ -208,22 +253,38 @@ export default function ProductDetail({
             ) : (
               <Text style={{ color: '#666' }}>Chưa có đánh giá cho sản phẩm này.</Text>
             )}
+{canReview && (
+  <TouchableOpacity
+    onPress={() => setReviewModalOpen(true)}
+    style={{ marginTop: 10 }}
+  >
+    <Text style={{ color: '#e11d48', fontWeight: '700' }}>
+      Viết đánh giá cho sản phẩm này
+    </Text>
+  </TouchableOpacity>
+)}
 
             {reviews.length > 0 && (
-              <FlatList
-                data={reviews}
-                keyExtractor={(it) => it.id || Math.random().toString()}
-                renderItem={({ item }) => (
-                  <View style={{ paddingVertical: 8, borderBottomWidth: 1, borderColor: '#f0f0f0' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Star size={14} color="#facc15" />
-                      <Text style={{ marginLeft: 8, fontWeight: '600' }}>{item.rating}</Text>
-                      <Text style={{ marginLeft: 8, color: '#666' }}>{item.userId ? ` · ${item.userId}` : ''}</Text>
-                    </View>
-                    {item.comment ? <Text style={{ marginTop: 6 }}>{item.comment}</Text> : null}
-                  </View>
-                )}
-              />
+<FlatList
+  data={reviews}
+  keyExtractor={(item) => item.id}
+  renderItem={({ item }) => (
+    <View style={{ paddingVertical: 10, borderBottomWidth: 1, borderColor: '#eee' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <RenderStars value={item.rating} />
+        <Text style={{ color: '#666', fontSize: 12 }}>
+          · {item.userId}
+        </Text>
+      </View>
+
+      {item.comment ? (
+        <Text style={{ marginTop: 6, color: '#333' }}>
+          {item.comment}
+        </Text>
+      ) : null}
+    </View>
+  )}
+/>
             )}
 
             {canReview && (
@@ -248,32 +309,6 @@ export default function ProductDetail({
           </View>
         </View>
       </ScrollView>
-
-      {reviewModalOpen && (
-        <Modal visible={reviewModalOpen} animationType="slide" transparent>
-          <View style={{flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'rgba(0,0,0,0.5)'}}>
-            <View style={{width:'90%', backgroundColor:'#fff', borderRadius:8, padding:16}}>
-              <Text style={{fontSize:18,fontWeight:'700'}}>Viết đánh giá</Text>
-              <View style={{flexDirection:'row', marginTop:12}}>
-                {[1,2,3,4,5].map((s)=>(
-                  <TouchableOpacity key={s} onPress={() => setReviewRating(s)} style={{marginRight:6}}>
-                    <Star size={24} color={s <= reviewRating ? '#facc15' : '#ddd'} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput value={reviewComment} onChangeText={setReviewComment} placeholder="Viết nhận xét..." multiline style={{borderWidth:1,borderColor:'#eee',borderRadius:6,marginTop:12,padding:8, minHeight:80}} />
-              <View style={{flexDirection:'row', justifyContent:'flex-end', marginTop:12}}>
-                <TouchableOpacity onPress={() => setReviewModalOpen(false)} style={{marginRight:12}}>
-                  <Text style={{color:'#666'}}>Huỷ</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={submitReview} style={{backgroundColor:'#e11d48', paddingHorizontal:16, paddingVertical:8, borderRadius:6}}>
-                  <Text style={{color:'#fff'}}>Gửi</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
 
       {/* Related products */}
       {related.length > 0 && (

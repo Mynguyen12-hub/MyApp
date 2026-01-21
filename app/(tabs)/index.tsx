@@ -1,4 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { collection, getFirestore, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -11,6 +13,7 @@ import {
   useWindowDimensions,
   View
 } from "react-native";
+import { app } from "../../config/firebaseConfig";
 
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -52,7 +55,7 @@ export interface Order {
   date: string;
   items: CartItem[];
   total: number;
-  status: "pending" | "processing" | "delivered" | "cancelled";
+  status: "pending" | "processing" | "shipped" | "delivered" | "cancelled";
 }
 
 
@@ -65,12 +68,76 @@ const [selectedCategory, setSelectedCategory] =
   useState<number | string | "ALL">("ALL");
   const [showSearch, setShowSearch] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+    // Load cart from AsyncStorage khi đăng nhập hoặc app khởi động
+    useEffect(() => {
+      const loadCart = async () => {
+        try {
+          const saved = await AsyncStorage.getItem('CART_ITEMS');
+          if (saved) setCartItems(JSON.parse(saved));
+        } catch (e) { console.log('Load cart error', e); }
+      };
+      loadCart();
+}, [user?.uid]);
+
+    // Lưu cart vào AsyncStorage khi cartItems thay đổi
+    useEffect(() => {
+      AsyncStorage.setItem('CART_ITEMS', JSON.stringify(cartItems));
+    }, [cartItems]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("home");
   const [favorites, setFavorites] = useState<number[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+
+  // Load favorites from AsyncStorage khi đăng nhập hoặc app khởi động
+  useEffect(() => {
+    const loadFavorites = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('FAVORITES');
+        if (saved) setFavorites(JSON.parse(saved));
+      } catch (e) { console.log('Load favorites error', e); }
+    };
+    loadFavorites();
+}, [user?.uid]);
+
+  // Lưu favorites vào AsyncStorage khi favorites thay đổi
+  useEffect(() => {
+    AsyncStorage.setItem('FAVORITES', JSON.stringify(favorites));
+  }, [favorites]);
+const [orders, setOrders] = useState<Order[]>([]);
+  // Fetch orders from Firestore for current user
+useEffect(() => {
+  if (!user?.uid) {
+    setOrders([]);
+    return;
+  }
+
+  const db = getFirestore(app);
+  const q = query(
+    collection(db, "orders"),
+    where("userId", "==", user.uid),
+    orderBy("createdAt", "desc")
+  );
+
+  const unsub = onSnapshot(q, (snap) => {
+    const list = snap.docs.map(doc => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        date: d.createdAt?.toDate?.().toLocaleString() ?? "",
+        items: d.items ?? [],
+        total: d.total ?? 0,
+        status: d.status ?? "pending",
+        note: d.note ?? "",
+      };
+    });
+
+    setOrders(list);
+  });
+
+  return unsub;
+}, [user?.uid]);
+  // Fetch orders when user logs in or HomeScreen mounts
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutItems, setCheckoutItems] = useState<CartItem[] | null>(null);
   const [checkoutSelectedDiscount, setCheckoutSelectedDiscount] = useState<number>(0);
@@ -83,10 +150,20 @@ const [selectedCategory, setSelectedCategory] =
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [openProfileNotifications, setOpenProfileNotifications] = useState(false);
   const [profileIncomingNotification, setProfileIncomingNotification] = useState<null | any>(null);
+  
   const navigation = useNavigation();
 //goi api 
 const [products, setProducts] = useState<Product[]>([]);
 const [loading, setLoading] = useState(true);
+const getFirestoreNumber = (field: any): number | null => {
+  if (!field) return null;
+  if (field.integerValue !== undefined) return Number(field.integerValue);
+  if (field.doubleValue !== undefined) return Number(field.doubleValue);
+  if (field.stringValue !== undefined && !isNaN(Number(field.stringValue))) {
+    return Number(field.stringValue);
+  }
+  return null;
+};
 
 //---------------------------------------------------
   // Address and Payment Methods state
@@ -95,16 +172,22 @@ const [loading, setLoading] = useState(true);
   const [paymentMethods] = useState([
     { id: 'cod', type: 'cod' as const, label: 'Thanh toán khi nhận hàng', isDefault: true },
     { id: 'momo', type: 'momo' as const, label: 'Ví MoMo' },
+    { id: 'vnpay', type: 'vnpay' as const, label: 'VNPay (Thẻ ATM/Banking)' },
     { id: 'bank', type: 'bank' as const, label: 'Chuyển khoản ngân hàng' },
   ]);
 
   // Saved vouchers state
-  const [savedVouchers, setSavedVouchers] = useState<{ id: string; code: string; discount: string; condition: string; minPrice?: number; maxDiscount?: number }[]>([]);
-  const [allVouchers, setAllVouchers] = useState<{ id: string; code: string; discount: string; condition: string; minPrice?: number; maxDiscount?: number }[]>([
-    { id: 'v1', code: 'SAVE50', discount: '50K', condition: 'Đơn từ 500K', minPrice: 500000, maxDiscount: 50000 },
-    { id: 'v2', code: 'LOVE30', discount: '30%', condition: 'Tất cả sản phẩm', minPrice: 0, maxDiscount: undefined },
-    { id: 'v3', code: 'FLASH20', discount: '20K', condition: 'Đơn từ 300K', minPrice: 300000, maxDiscount: 20000 },
-  ]);
+const [savedVouchers, setSavedVouchers] = useState<Voucher[]>([]);
+type Voucher = {
+  id: string;
+  code: string;
+  type: "percent" | "freeship";
+  discountValue: number;
+  minPrice?: number;
+  maxDiscount?: number;
+};
+
+const [allVouchers, setAllVouchers] = useState<Voucher[]>([]);
 
   // Banner images (3-4 ảnh)
   const bannerImages = [
@@ -206,7 +289,11 @@ const [categories, setCategories] = useState<Category[]>([]);
       status: "pending",
     };
     setOrders((prev) => [newOrder, ...prev]);
-    setCartItems([]);
+    // Chỉ xóa các sản phẩm đã mua khỏi giỏ hàng
+    const purchasedIds = orderItems.map(i => i.id);
+    const remainingCartItems = cartItems.filter(item => !purchasedIds.includes(item.id));
+    setCartItems(remainingCartItems);
+    AsyncStorage.setItem('CART_ITEMS', JSON.stringify(remainingCartItems));
     setIsCheckoutOpen(false);
     setIsCartOpen(false);
     // clear checkout temporary states
@@ -248,54 +335,47 @@ useEffect(() => {
     fetchVouchers();
   }, []);
 
-  const fetchVouchers = async () => {
-    try {
-      const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
-      const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/vouchers?key=${key}`;
-      const res = await fetch(url);
-      
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      
-      const json = await res.json();
-      console.log('Vouchers response:', json);
-      const docs = json.documents || [];
+const fetchVouchers = async () => {
+  try {
+    const key = 'AIzaSyC8BXvyOAje4OON58cXo_n30tUjBiZy9w4';
+    const url = `https://firestore.googleapis.com/v1/projects/flower-30f60/databases/(default)/documents/vouchers?key=${key}`;
+    const res = await fetch(url);
+    const json = await res.json();
 
-      if (docs.length > 0) {
-        const voucherList = docs.map((doc: any, idx: number) => {
-          const f = doc.fields || {};
-          const minPriceVal = f.minPrice?.integerValue ? parseInt(f.minPrice.integerValue) : undefined;
-          const maxDiscountVal = f.maxDiscount?.integerValue ? parseInt(f.maxDiscount.integerValue) : undefined;
-          return {
-            id: doc.name?.split('/').pop() || `v${idx + 1}`,
-            code: f.code?.stringValue || f.title?.stringValue || '',
-            discount: f.discount?.stringValue || f.amount?.stringValue || '',
-            condition: f.description?.stringValue || f.desc?.stringValue || '',
-            minPrice: minPriceVal,
-            maxDiscount: maxDiscountVal,
-          };
-        });
-        console.log('Vouchers loaded from Firebase:', voucherList);
-        setAllVouchers(voucherList);
-      } else {
-        console.log('No vouchers found, using fallback');
-        setAllVouchers([
-          { id: 'v1', code: 'SAVE50', discount: '50K', condition: 'Đơn từ 500K', minPrice: 500000, maxDiscount: 50000 },
-          { id: 'v2', code: 'LOVE30', discount: '30%', condition: 'Tất cả sản phẩm', minPrice: 0, maxDiscount: undefined },
-          { id: 'v3', code: 'FLASH20', discount: '20K', condition: 'Đơn từ 300K', minPrice: 300000, maxDiscount: 20000 },
-        ]);
-      }
-    } catch (e: any) {
-      console.warn('Vouchers fetch from Firestore failed', e?.message || e);
-      // Fallback to hardcoded vouchers if Firebase fails
-      setAllVouchers([
-        { id: 'v1', code: 'SAVE50', discount: '50K', condition: 'Đơn từ 500K', minPrice: 500000, maxDiscount: 50000 },
-        { id: 'v2', code: 'LOVE30', discount: '30%', condition: 'Tất cả sản phẩm', minPrice: 0, maxDiscount: undefined },
-        { id: 'v3', code: 'FLASH20', discount: '20K', condition: 'Đơn từ 300K', minPrice: 300000, maxDiscount: 20000 },
-      ]);
-    }
-  };
+    const docs = json.documents || [];
+
+    const voucherList = docs.map((doc: any, idx: number) => {
+      const f = doc.fields || {};
+
+      const type = f.type?.stringValue === "freeship" ? "freeship" : "percent";
+
+      const discountValue =
+        f.discountValue?.integerValue
+          ? Number(f.discountValue.integerValue)
+          : f.discountValue?.stringValue
+          ? Number(f.discountValue.stringValue)
+          : 0;
+
+      return {
+        id: doc.name?.split("/").pop() || `v${idx}`,
+        code: f.code?.stringValue || "",
+        type,
+        discountValue,
+        minPrice: f.minPrice?.integerValue
+          ? Number(f.minPrice.integerValue)
+          : undefined,
+        maxDiscount: f.maxDiscount?.integerValue
+          ? Number(f.maxDiscount.integerValue)
+          : undefined,
+      };
+    });
+
+    console.log("Vouchers parsed:", voucherList);
+    setAllVouchers(voucherList);
+  } catch (e) {
+    console.log("Fetch vouchers error:", e);
+  }
+};
 
   const fetchProducts = async () => {
     try {
@@ -493,50 +573,88 @@ useEffect(() => {
           </View>
 
           {/* ===== VOUCHER SECTION ===== */}
-          <View style={{ paddingHorizontal: 12, marginTop: 20, marginBottom: 12 }}>
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#000', marginBottom: 12 }}>🎫 Mã Giảm Giá</Text>
-            <FlatList
-              data={allVouchers}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(item) => item.id}
-              scrollEventThrottle={16}
-              renderItem={({ item }) => {
-                const isSaved = savedVouchers.some(v => v.id === item.id);
-                return (
-                  <TouchableOpacity 
-                    style={{ 
-                      backgroundColor: isSaved ? '#f5e4e8' : '#ffe4ed', 
-                      borderRadius: 12, 
-                      padding: 12, 
-                      marginRight: 12, 
-                      borderLeftWidth: 4, 
-                      borderLeftColor: '#e91e63',
-                      minWidth: 160,
-                      opacity: isSaved ? 0.6 : 1,
-                    }}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      if (isSaved) {
-                        setSavedVouchers(prev => prev.filter(v => v.id !== item.id));
-                      } else {
-                        setSavedVouchers(prev => [...prev, item]);
-                      }
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#e91e63', marginBottom: 4 }}>{item.code}</Text>
-                        <Text style={{ fontSize: 12, color: '#333', marginBottom: 6 }}>Giảm: <Text style={{ fontWeight: 'bold' }}>{item.discount}</Text></Text>
-                        <Text style={{ fontSize: 11, color: '#666' }}>{item.condition}</Text>
-                      </View>
-                      <Ionicons name={isSaved ? 'heart' : 'heart-outline'} size={20} color="#e91e63" />
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
+<View style={{ paddingHorizontal: 12, marginTop: 20, marginBottom: 12 }}>
+  <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#000', marginBottom: 12 }}>
+    🎫 Mã Giảm Giá
+  </Text>
+
+  <FlatList
+    data={allVouchers}
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    keyExtractor={(item) => item.id}
+    renderItem={({ item }) => {
+      const isSaved = savedVouchers.some(v => v.id === item.id);
+
+      return (
+        <TouchableOpacity
+          style={{
+            backgroundColor: isSaved ? '#f5e4e8' : '#ffe4ed',
+            borderRadius: 12,
+            padding: 12,
+            marginRight: 12,
+            borderLeftWidth: 4,
+            borderLeftColor: '#e91e63',
+            minWidth: 180,
+            opacity: isSaved ? 0.6 : 1,
+          }}
+          activeOpacity={0.8}
+          onPress={() => {
+            setSavedVouchers(prev =>
+              isSaved
+                ? prev.filter(v => v.id !== item.id)
+                : [...prev, item]
+            );
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+
+              {/* 🔥 TÊN MÃ GIẢM GIÁ */}
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: 'bold',
+                  color: '#e91e63',
+                  marginBottom: 4,
+                }}
+              >
+                {item.code}
+              </Text>
+
+              {/* 🔻 NỘI DUNG GIẢM */}
+              <Text style={{ fontSize: 12, color: '#333', marginBottom: 4 }}>
+                {item.type === 'percent'
+                  ? `Giảm ${item.discountValue}%`
+                  : `Giảm ${item.discountValue.toLocaleString()}đ phí ship`}
+              </Text>
+
+              {/* 🔻 ĐƠN TỐI THIỂU */}
+              {item.minPrice && (
+                <Text style={{ fontSize: 11, color: '#666' }}>
+                  Đơn tối thiểu {item.minPrice.toLocaleString()}đ
+                </Text>
+              )}
+
+              {/* 🔻 GIẢM TỐI ĐA */}
+              {item.type === 'percent' && item.maxDiscount && (
+                <Text style={{ fontSize: 11, color: '#666' }}>
+                  Giảm tối đa {item.maxDiscount.toLocaleString()}đ
+                </Text>
+              )}
+            </View>
+
+            <Ionicons
+              name={isSaved ? 'heart' : 'heart-outline'}
+              size={20}
+              color="#e91e63"
             />
           </View>
+        </TouchableOpacity>
+      );
+    }}
+  />
+</View>
 
           {/* ===== HOT PRODUCTS - HORIZONTAL SCROLL ===== */}
           <View style={{ marginTop: 20, marginBottom: 20 }}>
@@ -771,8 +889,6 @@ useEffect(() => {
         unreadCount={3}
         onLogout={logout}
         user={user}
-        addresses={addresses}
-        onAddressesChange={setAddresses}
         orders={orders}
         openNotifications={openProfileNotifications}
         onNotificationsHandled={() => setOpenProfileNotifications(false)}
@@ -828,7 +944,16 @@ useEffect(() => {
             setIsCheckoutOpen(false);
             setIsCartOpen(true);
           }}
-          onPlaceOrder={(address, payment, discount) => handleCheckout({ address, payment, discount, finalTotal: checkoutFinalTotal })}
+          onPlaceOrder={(address, payment, discount) => {
+            // Chỉ xóa sản phẩm đã mua khỏi giỏ hàng khi đặt hàng từ trang home
+            handleCheckout({
+              items: checkoutItems ?? cartItems,
+              address,
+              payment,
+              discount,
+              finalTotal: checkoutFinalTotal
+            });
+          }}
         />
       </Modal>
 

@@ -1,17 +1,17 @@
-import React, { useState, useRef, useEffect } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Image,
-  Keyboard,
+  View
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 
 interface Message {
   id: string;
@@ -27,6 +27,8 @@ interface Product {
 }
 
 export default function ChatScreen() {
+    const router = useRouter(); // ✅ thêm
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const flatListRef = useRef<FlatList>(null);
@@ -121,6 +123,14 @@ export default function ChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      <View style={styles.header}>
+  <TouchableOpacity onPress={() => router.back()}>
+    <Ionicons name="arrow-back" size={24} color="#333" />
+  </TouchableOpacity>
+  <Text style={styles.headerTitle}>Chat</Text>
+  <View style={{ width: 24 }} />
+</View>
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -196,4 +206,19 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 10,
   },
+  header: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  paddingHorizontal: 16,
+  paddingVertical: 12,
+  backgroundColor: "#fff",
+  borderBottomWidth: 1,
+  borderBottomColor: "#eee",
+},
+headerTitle: {
+  fontSize: 18,
+  fontWeight: "600",
+},
+
 });
